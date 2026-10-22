@@ -1,7 +1,7 @@
 plugins { id("com.android.application"); kotlin("android"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
     namespace = "org.aionlink.open"; compileSdk = 35
-    defaultConfig { applicationId = "org.aionlink.open"; minSdk = 29; targetSdk = 35; versionCode = 4; versionName = "0.4.0-research" }
+    defaultConfig { applicationId = "org.aionlink.open"; minSdk = 29; targetSdk = 35; versionCode = 5; versionName = "0.5.0-research" }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
 }

@@ -260,3 +260,76 @@ Actualizar USB, observar accesorio y autorizar Abrir USB y observar. Exportar al
 final. Si coincide ICCOA/CarLink/1.0.0, el propietario puede probar por separado
 Iniciar canales USB (experimental). No introducir PIN ni afirmar autenticación
 completada a partir de bytes/frames o un descriptor abierto.
+
+## Diagnósticos exportados del propietario — 2026-10-22
+
+Se localizaron por ADB dos archivos con nombre aionlink en Download; una búsqueda
+por ese nombre hasta cinco niveles de almacenamiento compartido no encontró otros.
+Se copiaron únicamente esos archivos a private/vehicle-tests-2026-10-22/.
+El primero corresponde a 0.1; el segundo a 0.4, no a dos intentos nuevos 0.4.
+
+El diagnóstico 0.4 tiene 13 observaciones en el snapshot final, incluidos Classic
+y BLE. Una observación BLE conectable anuncia FCFB, el UUID de filtro ICCOA
+localizado en Samsung, y tiene RSSI -51 dBm. Es evidencia de un candidato relevante
+en el entorno de la prueba; no prueba por sí sola identidad AION, GATT UnionShare,
+autenticación ni proyección. No se asigna compatibilidad confirmada al vehículo.
+
+La inspección GATT está IDLE, sin peer seleccionado ni servicios descubiertos;
+el log no registra solicitud de conexión GATT. USB está IDLE, accesorios AOA=0,
+bytes/frames/solicitudes=0, alimentación reportada USB=true. Esto no confirma que
+el cable estuviera en el coche durante la exportación ni que el receptor entrara
+en AOA. Las búsquedas de las 18:45–18:46 UTC sí finalizaron (14, 14 y 13 observaciones).
+
+La explicación respaldada del resultado visible es que se ejecutó descubrimiento,
+pero no consta un enlace GATT o AOA iniciado en ese diagnóstico. No atribuirlo a
+rechazo de autenticación o bloqueo regional. Próximo paso: seleccionar en la UI el
+candidato marcado por UUID, comprobar que es el vehículo propio estacionado y
+ejecutar Conectar y comprobar servicios. Para USB falta observar el accesorio
+durante el cableado al AION. Los TXT crudos siguen excluidos de Git.
+
+## 0.5 — descubrimiento dirigido y candidatos visibles — 2026-10-22
+
+El propietario informa que no vio candidatos. La revisión del código 0.4 encontró
+dos problemas de presentación: USB precedía los resultados y cada anuncio movía
+su tarjeta al final. No se afirma que esto reproduzca exactamente la pantalla de
+la prueba anterior. El TXT conservado sí contiene un indicio FCFB; no identifica
+por sí solo al AION.
+
+Cambios independientes:
+
+- Búsqueda principal BLE filtrada por FCFB, baja latencia, 15 segundos y sin
+  descubrimiento Classic simultáneo. Evidencia estática Samsung 3.1.04.10:
+  com/share/connect/ble/d.java:375–393. Alternativa general Classic/BLE separada.
+- Panel destacado de candidatos antes de USB; otros equipos desplegables,
+  posición estable por primera observación y conservación de indicios por búsqueda.
+- Selección GATT disponible durante el escaneo: se detiene antes de conectar,
+  conservando la confirmación de vehículo propio estacionado. Sin conexión automática.
+- Exportación con número de candidatos y eventos del modo de búsqueda.
+- Cuatro pruebas JVM de actualización/retención de evidencia. Build-Android.ps1
+  incluye ahora las pruebas del módulo Bluetooth.
+- Mapa de servicios y límites en protocol-research/SERVICE_REIMPLEMENTATION.md.
+  No se copiaron servicios, clases ni bibliotecas de fabricantes. P2P/AP,
+  ClientInfo, autenticación y proyección continúan pendientes.
+
+Validación: 6 pruebas Python, 27 JVM (5 core, 18 protocolo, 4 Bluetooth), todas
+correctas. assembleDebug y lintDebug correctos; lint 0 errores, 8 advertencias.
+Registro privado artifacts/reports/android-build-0.5.log. Herramientas: Python
+3.14.2, Gradle 8.13, AGP/lint 8.9.1, Kotlin 2.1.20, JBR 21, SDK/build-tools 35,
+ADB 1.0.41 / 37.0.0-14910828. apksigner verify correcto; su runtime emitió aviso
+de acceso nativo de Conscrypt, sin fallo de verificación.
+
+APK 0.5.0-research, versionCode 5, 24 548 605 bytes, SHA-256
+`3147bd22d60804a3ef002afb27ea6ded37ab8ad48de2ba9c566e2b911576effb`.
+Instalación ADB: Success; versión 5/0.5.0-research comprobada en el S25.
+am start -W devolvió Status ok (COLD y después WARM), con proceso presente.
+La verificación UI quedó incompleta: el primer dump mostró otro paquete y el
+segundo devolvió null root node; no se usa el XML antiguo como prueba visual.
+Buffer crash filtrado por UID propio: cero FATAL EXCEPTION. No se inició escaneo,
+GATT ni bootstrap USB durante esta revisión del teléfono lejos del vehículo.
+La presentación con candidato real y el comportamiento del AION siguen sin validar.
+
+Incidencias de herramientas corregidas: primera lectura usó src/main/java en vez
+de kotlin; una sustitución de texto por stdin falló por codificación y se rehízo
+con anclas ASCII; un glob de rg de Windows se reemplazó con -g; dumpsys no devolvió
+el campo userId esperado y se obtuvo UID con cmd package list packages -U.
+No se modificaron originales ni se publicaron archivos privados.

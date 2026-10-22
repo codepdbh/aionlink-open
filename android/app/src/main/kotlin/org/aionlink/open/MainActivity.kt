@@ -39,13 +39,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     val events = mutableEvents.asStateFlow()
     val usb = UsbAccessoryClient(application, ::event)
     fun event(message: String) { mutableEvents.value = (mutableEvents.value + "${java.time.Instant.now()} $message").takeLast(100) }
-    fun scan() {
+    fun scan(iccoaOnly: Boolean = true) {
         gatt.cancel()
         discovery.stop()
-        session.startDiscovery(); event("Descubrimiento Bluetooth solicitado por el usuario")
-        discovery.start { error ->
+        session.startDiscovery(); event("Modo: ${if (iccoaOnly) "ICCOA FCFB" else "general Classic/BLE"}"); event("Descubrimiento Bluetooth solicitado por el usuario")
+        discovery.start(iccoaOnly) { error ->
             if (error != null) { session.transportError(); event(error) }
-            else { session.discoveryFinished(); event("Descubrimiento finalizado: ${discovery.devices.value.size} observaciones") }
+            else { session.discoveryFinished(); event("Candidatos UUID: ${discovery.devices.value.count { it.recognizedServices.isNotEmpty() }}"); event("Descubrimiento finalizado: ${discovery.devices.value.size} observaciones") }
         }
     }
     fun stop() { discovery.stop(); gatt.cancel(); usb.stop(); session.disconnect(); event("Búsqueda/enlace detenido") }
@@ -62,13 +62,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.4.0-research")
+        appendLine("AionLink Open 0.5.0-research")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
         appendLine("Permisos: ${discovery.hasPermissions()}")
         appendLine("Búsqueda activa: ${discovery.isScanning.value}")
         appendLine("ICCOA: sin sesión verificada")
         appendLine("Observaciones actuales: ${discovery.devices.value.size} (no equivale a dispositivos únicos)")
+        appendLine("Candidatos UUID: ${discovery.devices.value.count { it.recognizedServices.isNotEmpty() }}")
         discovery.devices.value.forEach { peer ->
             appendLine("ID temporal=${peer.id}; transporte=${peer.transport}; RSSI=${peer.rssi}; conectable=${peer.connectable}; servicios anunciados=${peer.observedServiceCount}")
             appendLine("Indicios UUID estáticos=${peer.recognizedServices.sorted().joinToString().ifEmpty { "ninguno" }}; compatibilidad=DESCONOCIDA")
@@ -114,10 +115,13 @@ class MainActivity : ComponentActivity() {
     val inspection by model.gatt.state.collectAsStateWithLifecycle()
     val cable by model.usb.state.collectAsStateWithLifecycle()
     val gattBusy = inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
+    var showOthers by remember { mutableStateOf(false) }
+    val candidates = devices.filter { it.recognizedServices.isNotEmpty() }
     var pendingPeer by remember { mutableStateOf<String?>(null) }
     var pendingUsb by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
+    var requestedIccoaOnly by remember { mutableStateOf(true) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (model.discovery.hasPermissions()) model.scan() else model.denied()
+        if (model.discovery.hasPermissions()) model.scan(requestedIccoaOnly) else model.denied()
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -149,9 +153,39 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.4.0")
+            Text("Cliente USB + Bluetooth experimental • v0.5.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
+            Text("Buscar receptor ICCOA", style = MaterialTheme.typography.titleLarge)
+            Button(onClick = { requestedIccoaOnly = true; if (model.discovery.hasPermissions()) model.scan() else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy, modifier = Modifier.fillMaxWidth()) { Text("Buscar ICCOA CarLink") }
+            if (scanning) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Buscando durante 15 segundos...") }
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Candidatos ICCOA: ${candidates.size}", style = MaterialTheme.typography.titleLarge)
+                    if (candidates.isEmpty()) Text(if (scanning) "Esperando anuncios del receptor..." else "Sin indicios ICCOA. Abre ICCOA en el coche estacionado y busca de nuevo. Si no aparece, prueba la b\u00fasqueda general.")
+                    candidates.forEach { device ->
+                        Text(device.name, style = MaterialTheme.typography.titleMedium)
+                        Text("${device.transport} | RSSI ${device.rssi ?: "?"} | ID ${device.id}")
+                        Text("UUID compatible observado; identidad del veh\u00edculo sin confirmar.")
+                        Button(onClick = { pendingPeer = device.id }, enabled = !gattBusy && device.connectable != false, modifier = Modifier.fillMaxWidth()) { Text("Comprobar este receptor") }
+                        if (device.connectable == false) Text("El anuncio actual no permite conexi\u00f3n BLE.")
+                        HorizontalDivider()
+                    }
+                }
+            }
+            Text("Comprobaci\u00f3n BLE: ${inspection.stage}")
+            OutlinedButton(onClick = model::stop) { Text("Detener b\u00fasqueda / enlace") }
+            OutlinedButton(onClick = { requestedIccoaOnly = false; if (model.discovery.hasPermissions()) model.scan(false) else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy) { Text("B\u00fasqueda general Classic + BLE") }
+            TextButton(onClick = { showOthers = !showOthers }) { Text("${if (showOthers) "Ocultar" else "Mostrar"} otras observaciones (${devices.size - candidates.size})") }
+            if (showOthers) devices.filter { it.recognizedServices.isEmpty() }.forEach { device ->
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text(device.name, style = MaterialTheme.typography.titleMedium)
+                    Text("${device.transport} | ID ${device.id} | RSSI ${device.rssi ?: "?"}")
+                    Text("Sin UUID ICCOA reconocido. El nombre no identifica el protocolo.")
+                    if (device.transport == "BLE") OutlinedButton(onClick = { pendingPeer = device.id }, enabled = !gattBusy && device.connectable != false) { Text("Comprobar servicios BLE") }
+                } }
+            }
+            OutlinedButton(onClick = { export.launch("aionlink-diagnostics.txt") }) { Text("Guardar diagn\u00f3stico") }
             Text("Conexión por cable", style = MaterialTheme.typography.titleLarge)
             Text("USB: ${cable.stage} • Accesorios AOA: ${cable.accessories.size}")
             Text("Alimentación reportada USB: ${cable.usbPower} • Dispositivos modo host: ${cable.hostDevices}")
@@ -168,27 +202,6 @@ class MainActivity : ComponentActivity() {
             if (cable.busy) OutlinedButton(onClick = { model.usb.stop("Cancelado por el usuario") }) { Text("Cerrar USB") }
             Text("USB: ${cable.bytesRead} bytes recibidos; ${cable.frames} frames; ${cable.requestsSent} solicitudes enviadas")
             cable.message?.let { Text(it) }
-            Text("Bluetooth", style = MaterialTheme.typography.titleLarge)
-            Text("Permisos requeridos al buscar: dispositivos cercanos (Android 12+) o ubicación (Android 10–11).")
-            Text(if (scanning) "Búsqueda en curso…" else "Búsqueda detenida")
-            Button(onClick = { if (model.discovery.hasPermissions()) model.scan() else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy) { Text("Buscar mi vehículo") }
-            OutlinedButton(onClick = model::stop) { Text("Detener búsqueda / enlace") }
-            Text("Dispositivos observados", style = MaterialTheme.typography.titleLarge)
-            if (devices.isEmpty()) Text("Ningún dispositivo observado en esta búsqueda.")
-            devices.forEach { device ->
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                    Text(device.name, style = MaterialTheme.typography.titleMedium)
-                    Text("${device.transport} • ID temporal ${device.id}")
-                    device.rssi?.let { Text("Señal: $it dBm") }
-                    if (device.transport == "BLE") Text("Servicios anunciados: ${device.observedServiceCount} • Conectable: ${device.connectable}")
-                    if (device.recognizedServices.isNotEmpty()) Text("Candidato ICCOA/UnionShare por UUID observado. No autentica ni confirma el receptor AION.")
-                    Text("Compatibilidad desconocida: el nombre anunciado no identifica el protocolo.")
-                    if (device.transport == "BLE") OutlinedButton(
-                        onClick = { pendingPeer = device.id },
-                        enabled = !scanning && !gattBusy && device.connectable != false
-                    ) { Text("Conectar y comprobar servicios") }
-                } }
-            }
             Text("Conexión ICCOA", style = MaterialTheme.typography.titleLarge)
             Text("Enlace GATT: ${inspection.stage}")
             if (inspection.stage == GattStage.INSPECTED) {

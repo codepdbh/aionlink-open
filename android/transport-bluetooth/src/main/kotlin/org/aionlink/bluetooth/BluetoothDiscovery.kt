@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanSettings
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.*
@@ -14,12 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import org.aionlink.iccoa.AdvertisementEvidence
-
-data class DiscoveredDevice(
-    val id: String, val name: String, val transport: String, val rssi: Int?,
-    val observedServiceCount: Int = 0, val recognizedServices: Set<String> = emptySet(),
-    val connectable: Boolean? = null
-)
 
 /** Discovery only. Addresses remain in memory; IDs are random per search. */
 class BluetoothDiscovery(context: Context) {
@@ -48,11 +44,9 @@ class BluetoothDiscovery(context: Context) {
             val key = device.address + transport
             val id = identities.getOrPut(key) { UUID.randomUUID().toString().take(8) }
             if (transport == "BLE") handles[id] = device
-            val previous = mutableDevices.value.firstOrNull { it.id == id }
-            val hints = AdvertisementEvidence.recognizedServices(services) + (previous?.recognizedServices ?: emptySet())
             val item = DiscoveredDevice(id, device.name ?: "Sin nombre", transport, rssi,
-                maxOf(services.size, previous?.observedServiceCount ?: 0), hints, connectable)
-            mutableDevices.value = mutableDevices.value.filterNot { it.id == id } + item
+                services.size, AdvertisementEvidence.recognizedServices(services), connectable)
+            mutableDevices.value = mergeObservation(mutableDevices.value, item)
         } catch (_: SecurityException) { stop("Permiso Bluetooth revocado") }
     }
     private val receiver = object : BroadcastReceiver() {
@@ -71,6 +65,9 @@ class BluetoothDiscovery(context: Context) {
                 if (generation == scanGeneration) found(result.device, "BLE", result.rssi, services, result.isConnectable)
             }
         }
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            results.forEach { onScanResult(0, it) }
+        }
         override fun onScanFailed(errorCode: Int) { handler.post {
             if (generation == scanGeneration) stop("BLE: error $errorCode")
         } }
@@ -81,7 +78,7 @@ class BluetoothDiscovery(context: Context) {
     fun hasPermissions() = requiredPermissions().all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
-    fun start(onFinished: (String?) -> Unit) {
+    fun start(iccoaOnly: Boolean = true, onFinished: (String?) -> Unit) {
         stop()
         if (!hasPermissions()) { onFinished("Permisos pendientes"); return }
         val radio = adapter
@@ -95,11 +92,15 @@ class BluetoothDiscovery(context: Context) {
             if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else context.registerReceiver(receiver, filter)
             registered = true
-            val classic = radio.startDiscovery()
+            val classic = if (iccoaOnly) false else radio.startDiscovery()
             val scanner = radio.bluetoothLeScanner
             val callback = callbackFor(scanGeneration)
             scanCallback = callback
-            scanner?.startScan(callback)
+            val filters = if (iccoaOnly) listOf(ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid.fromString(AdvertisementEvidence.ADVERTISED_SERVICE)).build()) else emptyList()
+            val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0).build()
+            scanner?.startScan(filters, settings, callback)
             if (!classic && scanner == null) { stop("No se pudo iniciar el descubrimiento"); return }
             handler.postDelayed(timeout, 15000)
         } catch (_: SecurityException) { stop("Permiso Bluetooth denegado") }
