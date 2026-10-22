@@ -2,15 +2,21 @@
 import json
 from pathlib import Path
 import re
+import argparse
+from datetime import date
 
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--date', default=date.today().isoformat(), help='Report date YYYY-MM-DD')
+args = parser.parse_args()
+report_date = date.fromisoformat(args.date).isoformat()
 records = [json.loads(p.read_text(encoding='utf-8')) for p in sorted((ROOT/'analysis/metadata').glob('*/metadata.json'))]
-report = ['# Informe inicial de APK — 2026-10-21', '',
-          'Estado: análisis estático inicial completado para los cinco archivos presentes; revisión semántica exhaustiva PENDIENTE. No se han ejecutado APK ni probado el vehículo.', '',
+report = [f'# Informe de APK — {report_date}', '',
+          f'Estado: inventario estático de {len(records)} archivos; revisión semántica exhaustiva PENDIENTE. El análisis no ejecuta APK ni prueba el vehículo.', '',
           'Las firmas se verificaron con apksigner del SDK. Su validez interna no acredita origen oficial ni compatibilidad.', '',
           '| Paquete observado | Versión | min / target SDK | DEX | Bibliotecas en lib/ |',
           '|---|---|---|---|---|']
-native = ['# Inventario nativo — 2026-10-21', '',
+native = [f'# Inventario nativo — {report_date}', '',
           'Inventario ZIP con SHA-256 por biblioteca en los metadatos locales. Inspección ELF con LLVM del NDK 28.2.13676358; ninguna biblioteca fue cargada o ejecutada.', '']
 for record in records:
     b = record.get('badging', {})

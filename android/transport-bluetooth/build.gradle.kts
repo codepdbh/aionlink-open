@@ -4,4 +4,7 @@ android { namespace = "org.aionlink.bluetooth"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
 }
 kotlin { jvmToolchain(21) }
-dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1") }
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    implementation(project(":protocol-iccoa"))
+}

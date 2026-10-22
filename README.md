@@ -40,7 +40,8 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 ```
 
 > **Estado actual: experimental.** Hay una APK debug compilada e instalada en el
-> teléfono de pruebas. Incluye descubrimiento Bluetooth y diagnósticos.
+> teléfono de pruebas. Incluye descubrimiento Bluetooth, conexión GATT de inspección
+> bajo selección del usuario, transporte USB/AOA experimental y diagnósticos.
 > **La sesión ICCOA y la proyección en el AION todavía no están verificadas.**
 > Encontrar un dispositivo o emparejar Bluetooth no demuestra una sesión.
 
@@ -50,12 +51,14 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 |---|---|---|
 | Aplicación Android | Kotlin, Jetpack Compose, Material 3 y ViewModel | Compilada e instalada |
 | Descubrimiento | Búsqueda Bluetooth Classic/BLE de 15 segundos; permisos bajo demanda | Pendiente de validación física del descubrimiento |
+| Enlace BLE | Conexión al vehículo seleccionado, descubrimiento GATT y cierre | Implementado en 0.3; prueba con AION pendiente |
+| USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
-| Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre cinco APK |
+| Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
 | Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |
 
-**Validación local:** 3 pruebas Python y 5 pruebas JVM aprobadas; compilación debug
+**Validación local de v0.4:** 6 pruebas Python y 23 pruebas JVM aprobadas; compilación debug
 correcta; lint con 0 errores y 8 advertencias. Estos resultados verifican componentes
 propios, no compatibilidad con el vehículo.
 
@@ -105,8 +108,25 @@ solicitarlos. Android 10–11 requiere ubicación para el descubrimiento; Androi
 usa dispositivos cercanos. `neverForLocation` puede filtrar algunos anuncios BLE.
 
 La búsqueda muestra dispositivos con identificadores temporales. No identifica
-automáticamente al AION ni inicia emparejamiento o negociación ICCOA. Las pruebas
+automáticamente al AION. En 0.3 puedes seleccionar el BLE de tu coche, confirmar
+**Conectar y comprobar servicios** y obtener el inventario de UnionShare. El enlace
+se cierra al finalizar; no inicia emparejamiento ni negociación ICCOA. Las pruebas
 junto al vehículo deben hacerse con el coche estacionado.
+
+### Conexión por cable (0.4)
+
+Abre ICCOA en el vehículo estacionado y conecta el teléfono a su puerto de datos.
+Si Android muestra un selector de aplicación para el accesorio, elige AionLink Open.
+También puedes abrirla manualmente y pulsar **Actualizar USB**. Se requiere que el
+receptor inicie AOA; conectar por carga/ADB no demuestra ese modo.
+
+Con un accesorio visible, **Abrir USB y observar** solicita permiso y abre un canal
+durante 15 segundos sin enviar mensajes. Para el identificador observado
+ICCOA/CarLink/1.0.0 aparece **Iniciar canales USB (experimental)**: envía sólo las
+solicitudes estáticas iniciales RTSP/UIBC estudiadas en Samsung y observa respuestas.
+Ninguna opción completa todavía autenticación o proyección. Exporta el diagnóstico
+al finalizar. Bluetooth se mantiene disponible; su papel exacto en la ruta cableada
+no está verificado y no se empareja automáticamente.
 
 ## Arquitectura modular
 
@@ -117,11 +137,15 @@ android/
 ├── protocol-api/          Contratos independientes del fabricante
 ├── protocol-iccoa/        Adaptador de investigación; devuelve Unsupported
 ├── transport-bluetooth/   Descubrimiento Classic y BLE
-├── transport-usb/         Pendiente: rol y negociación USB
+├── transport-usb/         AOA experimental, permisos y lectura de canales
 ├── transport-wifi/        Pendiente: topología y transporte Wi-Fi
 ├── projection/            Pendiente: medios sobre sesión verificada
 └── vehicle-profiles/      Perfiles y evidencia por vehículo
 ```
+
+La versión 0.2 añade indicios pasivos por UUID ICCOA/UnionShare y un lector offline
+de cabeceras UCar con CRC y límites de tamaño. Los ejemplos de prueba son sintéticos;
+no son capturas del vehículo ni demuestran interoperabilidad.
 
 La UI no puede declarar una sesión establecida a partir del descubrimiento. Los
 transportes, la negociación y los perfiles están separados para incorporar futuros
@@ -172,6 +196,11 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 |---|---|
 | [Arquitectura](docs/architecture/SYSTEM_ARCHITECTURE.md) | Módulos, estados y límites |
 | [Investigación ICCOA](docs/protocol-research/ICCOA_RESEARCH.md) | Evidencias estáticas y modelo provisional |
+| [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
+| [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |
+| [Comparación de rutas](docs/protocol-research/PROTOCOL_COMPARISON.md) | Samsung, Xiaomi, OPPO y CarLife |
+| [Cliente de enlace](docs/protocol-research/ICCOA_CONNECTION_TRACK.md) | Enlace GATT, prueba 0.3 y ruta hacia interfaz propia |
+| [USB/AOA](docs/protocol-research/USB_AOA_OBSERVED.md) | Rutas cableadas Samsung/CarWith y cliente 0.4 |
 | [Preguntas abiertas](docs/protocol-research/OPEN_QUESTIONS.md) | Incertidumbres y próximos experimentos |
 | [Informe APK](analysis/reports/APK_ANALYSIS_REPORT.md) | Paquetes, versiones, firmas y extracción |
 | [Bibliotecas nativas](analysis/reports/NATIVE_LIBRARIES_REPORT.md) | Inventario y análisis ELF |

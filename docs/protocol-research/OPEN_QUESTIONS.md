@@ -1,5 +1,9 @@
 # Preguntas abiertas
 
+Actualización 2026-10-22: ya hay logs del S25, APK Samsung 3.1.04.10, filtro BLE
+FCFB y cabecera UCar candidatos especificados estáticamente. Sigue pendiente
+validarlos con el receptor AION y establecer el orden real. Véase UCAR_OBSERVED_FORMAT.md.
+
 1. ¿Cuál es el paquete, versión y firma pública del receptor ICCOA real del AION?
    Las APK de teléfono y el receptor CarLife no responden esta pregunta.
 2. ¿Qué anuncia la unidad al abrir ICCOA: BLE, Classic, Wi-Fi, USB, QR/PIN?

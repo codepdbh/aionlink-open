@@ -1,5 +1,12 @@
 # ICCOA CarLink: investigación independiente inicial
 
+Actualización 2026-10-22: se analizó también Samsung Auto 3.1.04.10 instalado en
+el S25 y se recuperaron logs de fallos OEM. Véanse [diagnóstico S25](S25_DIAGNOSIS.md),
+[formato UCar observado](UCAR_OBSERVED_FORMAT.md) y [comparación de rutas](PROTOCOL_COMPARISON.md).
+El framing estático antes desconocido ya tiene una especificación candidata y
+lector offline propio; sigue sin contrastarse con el AION. El resto de este documento
+describe la inspección inicial de 3.1.02.20, no la totalidad del estado actual.
+
 Fecha: 2026-10-21. No hay captura ni sesión con el receptor del AION.
 CONFIRMADO estático significa observable en los archivos indicados, no probado
 en hardware. PROBABLE indica interpretación; no es una especificación wire validada.

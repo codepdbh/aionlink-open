@@ -103,3 +103,160 @@ UUID y mensajes estáticos con el receptor concreto. Véase docs/TESTING.md.
 
 Estas fuentes sustentan el uso de herramientas/APIs; no documentan el wire protocol
 del receptor AION. Todos los hallazgos ICCOA anteriores provienen del análisis local.
+
+## Etapa 2026-10-22 — registros S25 y reconstrucción independiente inicial
+
+**Objetivo:** investigar el fallo de Samsung Auto con evidencia del teléfono y
+avanzar implementaciones propias a partir de protocolos observados.
+
+**Trabajo realizado:** lectura ADB por UID de las dos aplicaciones; copia local
+de la APK Samsung instalada (3.1.04.10); inventario, firma y extracción; contraste
+Java/Smali de llamada OEM, filtro BLE y cabeceras; comparación de seis APK contando
+ambas versiones Samsung. Se mantienen separados los originales de investigación.
+
+**Hallazgos:** dos cierres retenidos por método Samsung ausente al enlazar ICCOA;
+denegaciones de MANAGE_ACTIVITY_TASKS y SEM_APP_RESTRICTION; en un intento posterior
+se abren servicios locales BLE/P2P. No hay confirmación de rechazo por región ni
+de sesión con receptor. Las trazas históricas no identifican inequívocamente qué
+versión produjo cada cierre. La versión actual contiene la llamada OEM fallida.
+El propietario confirmó estar lejos del coche durante esta inspección.
+
+**Implementación original 0.2:** lector offline UCar (20 bytes, CRC-16/ARC, límites,
+lectura fragmentada, valores desconocidos preservados); indicios FCFB/UnionShare
+obtenidos de UUID anunciados; diagnóstico exportable de observaciones sin nombre,
+MAC, PIN ni service/manufacturer data; timestamps y control de callbacks BLE tardíos.
+No hay encoder ni envío de autenticación. El adaptador de sesión sigue Unsupported.
+
+**Evidencias:** docs/protocol-research/S25_DIAGNOSIS.md,
+UCAR_OBSERVED_FORMAT.md y PROTOCOL_COMPARISON.md; metadatos nuevos en
+analysis/metadata/samsung-auto-3-1-04-10-s25-5633d2f9c1bb/; registros privados bajo
+private/phone-evidence-20261022T131847370776Z/. Colector no inicia apps, no limpia logs,
+no concede permisos y no cambia HCI. El ajuste HCI consultado devolvió null, lo
+cual no demuestra que no exista ninguna configuración equivalente del fabricante.
+
+**Validación:** 6 pruebas Python y 14 JVM (5 core + 9 protocolo), todas aprobadas.
+Compilación/lint BUILD SUCCESSFUL, 0 errores y 8 advertencias de lint. Pruebas de
+protocolo usan fixtures sintéticas explícitas, no respuestas fabricadas de un coche.
+Evidencia: artifacts/reports/android-build-0.2.log y XML de test-results por módulo.
+Inventario nativo actualizado: 102 candidatos, 98 aceptados y 4 rechazos ELF conocidos.
+
+**Entrega:** artifacts/builds/aionlink-open-debug.apk, versión 0.2.0-research,
+versionCode 2, 24 336 562 bytes. SHA-256:
+`2710f351c9fcb731831a925d106c0680f8ab01ce4a82c678150de3c49a465d22`.
+Firma debug verificada; instalación actualizada por ADB con Success y versión
+comprobada en dumpsys. No se abrió automáticamente la aplicación ni se inició
+una búsqueda desde el ordenador. No se modificó la app Samsung.
+
+**Errores y límites:** los logs iniciales con -t y filtro UID devolvieron vacío;
+leer por UID sin limitar la cola global recuperó eventos retenidos. La nueva APK
+Samsung produjo 38 errores JADX; su extracción Apktool fue exitosa. No hay captura
+GATT ni red de una sesión real del AION. No se han recreado todas las aplicaciones
+ni sus protocolos completos. Los canales similares de Samsung/CarWith no justifican
+mezclar CarLife o rutas de llave/control del paquete OPPO con proyección ICCOA.
+
+**Estado:** etapa parcial con componentes propios probados. Hitos 5–7 pendientes.
+**Siguiente actividad:** comparación de búsquedas 0.2 con ICCOA abierto/cerrado,
+vehículo estacionado y propietario presente; obtener mensajes reales antes de
+implementar escritura GATT, topología de red y autenticación. Logs, APK extraída y
+diagnóstico del usuario siguen excluidos de Git; no se enviaron a servicios externos.
+
+## Etapa 2026-10-22 — cliente de enlace 0.3 e interfaz propia como objetivo
+
+El propietario pidió una app con posibilidades reales de enlace, interfaz propia
+o puente Android Auto. Aclaró que el receptor muestra ICCOA CarLink y Huawei Car;
+CarbitLink no fue identificado. Se priorizó ICCOA con código propio. No se promete
+probabilidad de éxito o conversión Android Auto sin interoperabilidad verificable.
+
+**Trabajo realizado:** GattInspector conecta al BluetoothDevice observado que el
+propietario seleccione, descubre servicios, filtra UnionShare y tres características
+conocidas, y cierra el enlace. Timeout 15 segundos, cancelación, callbacks serializados
+en main y generaciones para descartar eventos tardíos. UI de selección y confirmación
+para vehículo propio estacionado. Resultado GATT separado del estado de sesión.
+No hay lectura de valores, notificaciones, escritura de PIN/JSON, bond ni sockets.
+
+**Investigación adicional:** se localizaron los nombres de campos JSON Client info
+y el intercambio posterior en la ruta BLE Samsung. La especificación completa,
+campos de red y variante del AION aún no están validados. La página pública del
+estándar ICCOA fue recuperada tras un timeout del navegador, pero su descarga oficial
+respondió que requiere login; no se utilizó cuenta ni se eludió el requisito.
+Una salida de consola con texto chino falló por cp1252 y se repitió con Python -X utf8.
+
+**Validación:** compilación y lint BUILD SUCCESSFUL, 0 errores/8 advertencias;
+6 pruebas Python y 17 JVM (5 core, 9 framing, 3 filtrado GATT), todas aprobadas.
+El adaptador GATT Android no se probó contra hardware remoto: el propietario está
+lejos del coche. No se conectó ni escaneó ningún dispositivo desde el ordenador.
+
+**Entrega:** AionLink Open 0.3.0-research, versionCode 3, instalada por ADB con Success,
+versión comprobada en dumpsys; firma debug validada. APK:
+artifacts/builds/aionlink-open-debug.apk, 24 332 951 bytes. SHA-256:
+`715718a0f85656f0c99807e24a7a2f68ff93757a37380497567032d8c1014422`.
+Log de compilación: artifacts/reports/android-build-0.3.log.
+
+La app propia se abrió en el S25 para comprobar la pantalla. Jerarquía UI confirmó
+v0.3.0, estado IDLE, botones y estado GATT. Pulsar Detener cambió el estado a
+DISCONNECTED sin acciones de radio. Evidencias locales privadas:
+private/ui-0.3.png, ui-0.3.xml y ui-0.3-stopped.xml. No se mostró ninguna ventana en Windows.
+
+**Estado y siguiente paso:** enlace GATT implementado, pendiente prueba con receptor
+propio; autenticación ICCOA y proyección aún pendientes. Hitos 5–7 continúan sin
+completar. Seguir docs/protocol-research/ICCOA_CONNECTION_TRACK.md: abrir ICCOA,
+buscar, seleccionar el BLE del coche, comprobar servicios y exportar el resultado.
+La interfaz de proyección propia se implementará sobre una sesión real; no se crea
+un escritorio ficticio ni se llama Android Auto a una interfaz distinta.
+
+## Etapa 2026-10-22 — APK 0.4 con rutinas USB/AOA independientes
+
+**Objetivo:** priorizar la reacción por cable informada por el propietario y
+recrear de forma independiente comportamientos de transporte observados en Samsung
+y CarWith. La necesidad de Bluetooth es una observación del propietario; su rol
+concreto y el eventual uso de Wi-Fi aún no están confirmados.
+
+**Análisis:** se siguieron IccoaUsbConnectionActivity, UsbConnectReceiver, el setup
+AOA, lector y multiplexor Samsung; AOAActivity y filtros de CarWith. Ambas apps
+identifican ICCOA/CarLink/1.0.0; CarWith distingue además CarLife y Carbit. Samsung
+prepara canales por USB y después inicia autenticación UCar sobre loopback. No
+se copió código ni bibliotecas; especificación en USB_AOA_OBSERVED.md.
+
+**Implementado:** transport-usb convertido en módulo Android real; enumeración de
+accesorios y dispositivos host, alimentación reportada USB, attach/detach y filtro
+de accesorio ICCOA. Permiso explícito comprobado con UsbManager, apertura del
+descriptor AOA, lectura incremental con límites y cierre. En modo opcional y sólo
+para identidad observada, emite los dos pedidos iniciales estáticos RTSP/UIBC.
+El modo de observación no envía datos. Ninguno declara sesión ICCOA o proyección.
+No hay proxy loopback, respuesta a creación de sockets ni autenticación aún.
+
+Los intentos se cancelan al salir a background, detener o retirar el accesorio;
+callbacks de permiso antiguos no autorizan intentos nuevos. IO no bloqueante con
+poll, tiempo máximo 15 segundos y límites de bytes/frames. Se procesan datos
+pendientes incluso si el peer cierra. Los payloads nunca se guardan ni exportan.
+Se informa errno numérico cuando Android devuelve un error de E/S, sin datos privados.
+
+**Pruebas:** 6 Python y 23 JVM (5 core, 18 protocolo), todas aprobadas. Las seis
+pruebas nuevas USB usan fixtures sintéticas para formato, fragmentación, padding,
+concatenación, validación y aislamiento. Build/lint SUCCESSFUL: 0 errores y 8
+advertencias. Evidencia: artifacts/reports/android-build-0.4.log y test-results.
+
+**Entrega final:** APK debug 0.4.0-research, versionCode 4, 24 498 373 bytes;
+SHA-256 `65e2de5e078777cd7ab8ff266e975eb5a3e0a70f38d0d2827e93ea7237f695ff`.
+Ruta: artifacts/builds/aionlink-open-debug.apk. Firma verificada, instalación ADB
+Success y versión comprobada. En el S25 conectado al PC, la UI y Actualizar USB
+mostraron alimentación USB=true, accesorios AOA=0, frames=0 y solicitudes=0.
+No se envió ningún bootstrap al ordenador. Evidencia local: private/ui-0.4.xml,
+ui-0.4-refreshed.xml y ui-0.4-final.xml.
+
+La primera comprobación inmediatamente después del último reemplazo no encontró
+nodos de nuestra app; no hubo traza AndroidRuntime por su UID. Se repitió con
+am start -W: arranque COLD con Status ok, proceso activo y pantalla 0.4 verificada.
+No se atribuyó el cambio transitorio de pantalla a un crash sin evidencia.
+
+**Estado:** transporte inicial cableado implementado, comportamiento del receptor
+AION todavía sin validar. No se recrearon todos los protocolos ni la proyección.
+No se cambió el modo USB/ADB del teléfono ni preferencias de otras aplicaciones.
+Los originales permanecen intactos; logs y artefactos siguen privados.
+
+**Siguiente prueba:** AION estacionado, ICCOA abierto, puerto de datos y cable al
+S25; elegir AionLink en el selector Android si aparece, o abrirla manualmente.
+Actualizar USB, observar accesorio y autorizar Abrir USB y observar. Exportar al
+final. Si coincide ICCOA/CarLink/1.0.0, el propietario puede probar por separado
+Iniciar canales USB (experimental). No introducir PIN ni afirmar autenticación
+completada a partir de bytes/frames o un descriptor abierto.

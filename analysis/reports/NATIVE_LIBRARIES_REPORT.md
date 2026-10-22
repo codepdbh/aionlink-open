@@ -1,4 +1,4 @@
-# Inventario nativo — 2026-10-21
+# Inventario nativo — 2026-10-22
 
 Inventario ZIP con SHA-256 por biblioteca en los metadatos locales. Inspección ELF con LLVM del NDK 28.2.13676358; ninguna biblioteca fue cargada o ejecutada.
 
@@ -117,7 +117,23 @@ Inventario ZIP con SHA-256 por biblioteca en los metadatos locales. Inspección 
 | lib/armeabi-v7a/libVoiceActivity.so | 825444 | `61f62acb4f6ada7d874cf6659573943d89edbd08a499c06421ff13ff07ff0072` |
 | lib/armeabi-v7a/libtensorflowlite.so | 3249156 | `cd554484753cf3718c30775a9f49fadcb8d95ebb11794bdd13d8216b0df2c299` |
 
-Se inspeccionaron 91 candidatos *.so (incluye assets); 87 aceptados por readelf y 4 rechazados.
+## com.samsung.android.carlink
+
+| Entrada | Bytes | SHA-256 |
+|---|---:|---|
+| lib/arm64-v8a/libAMapSDK_MAP_v10_0_700.so | 19998824 | `2a4d61d2308710af2a73dfca43b76afb6277f5aad0f8e036ec94f2503ab760f5` |
+| lib/arm64-v8a/libDiagMonKey.so | 5920 | `77956054bd4e419a9a54ac8a93d2daf33939448252cd810403a125abe26d1efa` |
+| lib/arm64-v8a/libPreprocess.so | 345232 | `1fae192820ae1a662e9c896f4e0c26c6d8960886bea65e17b15c4a2ed3972705` |
+| lib/arm64-v8a/libVoiceActivity.so | 950976 | `f2c850d5eead7ec43d3da0c63e3e2da480c56dec176dbbaa8921316f7802eb36` |
+| lib/arm64-v8a/libc++_shared.so | 991920 | `ef50b47c713cf7778c42efd33fde62663f1a80a9764c803541b90e1bc8068949` |
+| lib/arm64-v8a/libheycastcore.so | 729328 | `a99856ef3ee3255af6d51dac9b540bac081ed6a5a112b80ebd5ad2cb23427af1` |
+| lib/arm64-v8a/libtensorflowlite.so | 4489256 | `dde834951d11a7adad39ccf52292cfbbde0e95598b1a60edcebe6246b8f076da` |
+| lib/armeabi-v7a/libDiagMonKey.so | 13960 | `013dabd2cc730ba83204eb1aace2c45c9992cd13538f0ad44c64a5d7974119d1` |
+| lib/armeabi-v7a/libPreprocess.so | 216140 | `4a1f97846891273c43abaf16c7df2195e9231e81cb9c74f373e5f676ea32256e` |
+| lib/armeabi-v7a/libVoiceActivity.so | 825444 | `61f62acb4f6ada7d874cf6659573943d89edbd08a499c06421ff13ff07ff0072` |
+| lib/armeabi-v7a/libtensorflowlite.so | 3249156 | `cd554484753cf3718c30775a9f49fadcb8d95ebb11794bdd13d8216b0df2c299` |
+
+Se inspeccionaron 102 candidatos *.so (incluye assets); 98 aceptados por readelf y 4 rechazados.
 
 Rechazados (la extensión no prueba formato ELF):
 

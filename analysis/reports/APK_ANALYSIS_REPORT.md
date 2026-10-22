@@ -1,6 +1,6 @@
-# Informe inicial de APK — 2026-10-21
+# Informe de APK — 2026-10-22
 
-Estado: análisis estático inicial completado para los cinco archivos presentes; revisión semántica exhaustiva PENDIENTE. No se han ejecutado APK ni probado el vehículo.
+Estado: inventario estático de 6 archivos; revisión semántica exhaustiva PENDIENTE. El análisis no ejecuta APK ni prueba el vehículo.
 
 Las firmas se verificaron con apksigner del SDK. Su validez interna no acredita origen oficial ni compatibilidad.
 
@@ -10,6 +10,7 @@ Las firmas se verificaron con apksigner del SDK. Su validez interna no acredita 
 | com.carlife.autodex | 4.0.0 (16) | 21 / 30 | 1 | 0 |
 | com.heytap.opluscarlink | 16.4.2 (1604002) | 28 / 35 | 2 | 0 |
 | com.miui.carlink | 4.0.14-20260801 (104000014) | 29 / 33 | 8 | 25 |
+| com.samsung.android.carlink | 3.1.04.10 (310400010) | 35 / 36 | 2 | 11 |
 | com.samsung.android.carlink | 3.1.02.20 (310200020) | 33 / 34 | 2 | 11 |
 
 ## com.baidu.carlife.samsung
@@ -91,6 +92,26 @@ JADX agotó el heap de 2 GiB: salida parcial, no descompilación completa. Conse
 Índice de localización: 28347 líneas con términos; cada coincidencia requiere validación.
 
 Evidencia local: `analysis/metadata/com-miui-carlink_4-0-14-20260801-104000014_minAPI29-arm64-v8a-nod-c7888ec5018b/metadata.json`, `badging.txt`, `signature.txt`, `apktool.log`, `jadx.log`, `keyword-index.jsonl`; manifiesto/Smali en `extracted/com-miui-carlink_4-0-14-20260801-104000014_minAPI29-arm64-v8a-nod-c7888ec5018b/`.
+
+## com.samsung.android.carlink
+
+Original: `samsung-auto-3.1.04.10-s25.apk` (75839836 bytes).
+
+SHA-256: `5633d2f9c1bb4422df9c35b79af46cbddc940df0c3d512d6b9fc6546dee7d917`.
+
+Certificado público SHA-256: `34df0e7a9f1cf1892e45c056b4973cd81ccf148a4050d11aea4ac5a65f900a42`.
+
+Permisos solicitados: 154. sharedUserId: no declarado.
+
+Componentes: activity=83, activity-alias=0, service=19, receiver=18, provider=7, uses-library=2.
+
+Errores/resultado de comandos: `{"badging": 0, "signature": 0, "apktool": 0, "jadx": 3}`.
+
+JADX finalizó con 38 errores; Java reconstruido es incompleto.
+
+Índice de localización: 12506 líneas con términos; cada coincidencia requiere validación.
+
+Evidencia local: `analysis/metadata/samsung-auto-3-1-04-10-s25-5633d2f9c1bb/metadata.json`, `badging.txt`, `signature.txt`, `apktool.log`, `jadx.log`, `keyword-index.jsonl`; manifiesto/Smali en `extracted/samsung-auto-3-1-04-10-s25-5633d2f9c1bb/`.
 
 ## com.samsung.android.carlink
 

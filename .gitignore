@@ -21,8 +21,10 @@
 !/tools/scripts/
 **/build/
 **/.gradle/
+**/.kotlin/
 **/local.properties
 **/__pycache__/
 .idea/
 *.log
 private/
+/aionlink-diagnostics*.txt

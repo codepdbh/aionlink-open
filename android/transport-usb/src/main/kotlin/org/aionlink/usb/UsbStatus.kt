@@ -1,2 +1,2 @@
 package org.aionlink.usb
-object UsbStatus { const val status = "PENDING: USB role and accessory negotiation unverified" }
+object UsbStatus { const val status = "EXPERIMENTAL_AOA: no verified ICCOA session" }
