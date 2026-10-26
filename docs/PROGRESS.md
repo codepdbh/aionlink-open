@@ -333,3 +333,200 @@ de kotlin; una sustitución de texto por stdin falló por codificación y se reh
 con anclas ASCII; un glob de rg de Windows se reemplazó con -g; dumpsys no devolvió
 el campo userId esperado y se obtuvo UID con cmd package list packages -U.
 No se modificaron originales ni se publicaron archivos privados.
+
+## Revisión de nuevos diagnósticos — 2026-10-23
+
+Se copiaron por ADB tres exportaciones de Download a
+private/vehicle-tests-2026-10-23/. Dos hashes coinciden con los diagnósticos previos.
+La nueva exportación 0.5 (2053 bytes), SHA-256
+`98d00367faf45619f0da0c36203bf24d3b273a247bb1efeb000bea459454e61d`,
+registra dos inspecciones GATT correctas el 22 de octubre, 19:03:48–19:03:55
+hora boliviana. Ambas ven cinco servicios y UnionShare. El snapshot final incluye
+ClientInfo con propiedades 8 y ServerInfo con 18; no incluye ClientAuthInfo.
+Se contrastaron las propiedades con la referencia oficial Android.
+
+Esto supera el descubrimiento pasivo 0.4, pero no verifica autenticación ni sesión.
+El cierre está implementado explícitamente en nuestro GattInspector tras descubrir
+servicios. USB sólo informa snapshot IDLE, AOA=0 y alimentación USB=false. No hay
+evidencia de rechazo regional ni de fallo de autenticación. Análisis detallado:
+protocol-research/VEHICLE_DIAGNOSTICS_2026-10-22.md.
+
+Herramientas: ADB existente y SHA-256 de PowerShell. No se ejecutaron pruebas de
+código porque sólo se añadieron documentos. La consulta inicial de fuentes SDK
+android-35 no encontró BluetoothGattCharacteristic.java; se usó documentación
+oficial online. No se inició conexión, escaneo o instalación; originales y TXT
+privados permanecen intactos. Autenticación, intercambio de red y proyección siguen
+incompletos. No se publicó esta revisión.
+
+## 0.6 — intercambio BLE y conexión de red experimental — 2026-10-23
+
+Solicitud del propietario: avanzar más allá del inventario para conectar. Se
+implementaron ClientInfo/ServerInfo y un cliente Wi-Fi Direct con código propio;
+no se completaron autenticación UCar o proyección. Detalle, procedencia y límites:
+protocol-research/BLE_BOOTSTRAP_06.md.
+
+Cambios:
+
+- BleNegotiator separado del inspector: mantiene GATT durante MTU, servicios,
+  suscripción, escritura y espera; confirma escritura antes de entregar una
+  respuesta, con control de carreras, callbacks antiguos y timeout de 30 s.
+- Identidad local propia de seis caracteres, modelo real, capacidad de 5 GHz y
+  PIN del propietario; no suplanta Samsung. PIN sólo en memoria y no exportado.
+- Validadores ClientInfo y ServerInfo, límite de tamaño, UTF-8 estricto, errores
+  sin contenido remoto y objetos con toString redactado.
+- Restricción confirmada en documentación oficial: requestDeviceInfo oculta la
+  MAC local sin LOCAL_MAC_ADDRESS. No se solicita ni concede permiso privilegiado.
+  Si no existe MAC utilizable o no hay PIN, se prueba únicamente READ ServerInfo,
+  propiedad observada en el receptor. La disponibilidad de parámetros por esa
+  lectura antes de ClientInfo es hipótesis sin validar con AION, no éxito supuesto.
+- P2pConnector usa config público con los parámetros de la respuesta; rechaza
+  grupos preexistentes y compara grupo/propietario antes de declarar red conectada.
+  Timeout 45 s, cancelación y cierre en fondo. No abre sockets ni envía autenticación.
+- Botón principal Conectar BLE + Wi-Fi Direct, inspección anterior secundaria,
+  permisos bajo demanda y diagnóstico con etapas y conteos sin parámetros secretos.
+- Módulo transport-wifi convertido de marcador JVM a librería Android. org.json
+  20240303 se usa sólo para compilar/probar el protocolo JVM; Android aporta su JSON.
+
+Validación: 6 Python y 36 JVM (5 core, 27 protocolo, 4 Bluetooth), todas correctas;
+9 pruebas nuevas cubren campos y límites, redacción, datos inválidos, topología y
+la carrera respuesta/confirmación de escritura. Build y lint correctos: 0 errores,
+10 advertencias. Registro privado artifacts/reports/android-build-0.6-final.log.
+Toolchain: Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, JBR 21, SDK/build-tools 35,
+Python 3.14.2 y ADB 37.0.0. git diff --check correcto.
+
+Primer lint falló por CoarseFineLocation al ampliar FINE hasta API 32. Corregido
+declarando y solicitando COARSE junto a FINE en API 29–32. Consulta web inicial de
+WifiP2pConfig.Builder agotó tiempo; reintento oficial correcto. apksigner emitió
+el aviso de acceso nativo Conscrypt ya conocido, con verificación correcta.
+
+APK final 0.6.0-research, versionCode 6, 24 662 752 bytes; SHA-256
+`830b3a7b3eab87625e94dc2f4cd8ed9338693fee065fe7704444aa21a06138dc`.
+Instalación final por ADB: Success. am start -W: Status ok; se entregó el intent
+a la instancia superior ya activa. En una compilación intermedia 0.6, arranque
+COLD correcto y 31 nodos UI propios mostraron versión 0.6, candidato=0,
+intercambio=IDLE/red=IDLE. Buffer crash propio: cero FATAL EXCEPTION. Los caracteres
+acentuados se degradaron al imprimir en consola, pero XML y fuente UTF-8 no contienen
+caracteres U+FFFD; no se atribuye a corrupción de la interfaz.
+
+No se iniciaron búsquedas o conexiones remotas desde el ordenador. La nueva ruta
+normal, la consulta READ y el grupo P2P no están verificados con el vehículo. La
+prueba del propietario debe ser con AION estacionado, ICCOA abierto y el nuevo
+botón, exportando después. No afirmar que la petición «todo lo necesario» esté
+completa: faltan autenticación, negociación/canales y motor de proyección; USB
+mantiene el alcance anterior. APK originales, librerías OEM y TXT privados no se
+modificaron ni publicaron. Estos cambios permanecen locales, sin push automático.
+
+## 0.7 — corrección tras introducir PIN sin intercambio — 2026-10-26
+
+Se leyeron dos TXT nuevos de Download por ADB; ambos registran el mismo intento
+del 24 de octubre a las 15:55 hora boliviana. Copias privadas, hashes y análisis
+en protocol-research/VEHICLE_DIAGNOSTICS_2026-10-24.md. El segundo archivo añade
+el evento de exportación del primero; no se cuentan dos conexiones distintas.
+
+Hallazgo: nuestra 0.6 pidió PIN, Android devolvió identidad P2P oculta y la app
+cambió a READ sin enviar ClientInfo/PIN. BLE llegó a MTU 512 y READING_SERVER,
+sin respuesta registrada. Cancelación a los 24,46 s de lectura, antes de vencer
+el timeout global. La cercanía de la exportación y la implementación de onStop
+hacen plausible cancelación al abrir el selector; el TXT no prueba ese motivo.
+No hay evidencia de PIN rechazado, autenticación, red o sesión ICCOA.
+
+Correcciones propias:
+
+- Elegibilidad normal antes de solicitar PIN; bloqueo visible si falta dirección
+  P2P real. Se elimina la alternativa READ silenciosa. Resultado fijado arriba y
+  desplazamiento al aviso cuando cambia, para que no quede enterrado en la UI.
+- READ separado, con confirmación del vehículo propio estacionado y límite de
+  15 segundos. No se interpreta falta de respuesta como rechazo de autenticación.
+- Preparación PIN con caducidad de 60 s y verificación de READY al confirmar.
+- Cada intento reinicia el estado de intercambio y tiene número en diagnóstico.
+  Modo explícito READ/NORMAL, confirmación real de escritura GATT y cancelación
+  con causa de código y etapa anterior; sin registrar el valor del PIN.
+- DiagnosticExport conserva la captura previa al selector Android y la consume
+  una vez. Un proceso recreado sin captura no abre/trunca el destino. No se
+  presenta el estado destruido al volver como si fuera el estado previo al exportar.
+- Se retira DisposableEffect con limpieza implícita. Activity.onStop, ViewModel
+  finalizado, Detener y nueva búsqueda mantienen limpieza explícita, con motivos.
+
+Se revisó además ClientInfo de Xiaomi en
+com/miui/carlink/castfwk/wireless/bt/t.java:M (evidencia local): también incorpora
+y valida metadatos locales. No se encontró una ruta probada sin ese requisito
+para el AION. No se inventaron mensajes, UUID ni MAC y no se solicitaron permisos
+privilegiados. La restricción P2P, autenticación y proyección siguen sin resolver.
+
+Validación: 6 pruebas Python y 40 JVM (7 core, 29 protocolo, 4 Bluetooth), sin
+fallos. Cuatro pruebas nuevas cubren captura anterior a onStop, consumo de
+exportaciones, identidad local anonimizada y elegibilidad normal. assembleDebug
+y lintDebug correctos; lint 0 errores/10 advertencias. Registro privado:
+artifacts/reports/android-build-0.7-final.log. Toolchain conservado: Gradle 8.13,
+AGP 8.9.1, Kotlin 2.1.20, JBR 21, SDK/build-tools 35, Python 3.14.2, ADB 37.0.0.
+git diff --check correcto; avisos de normalización CRLF a LF sin error. apksigner
+verify correcto, con aviso Conscrypt de acceso nativo conocido.
+
+APK final 0.7.0-research, versionCode 7, 24 697 984 bytes; SHA-256
+`c86e2b8258eb83351bc3fc645a7b52676258625f5b73a80267ebbb6b8ea2d9fa`.
+ADB install -r: Success; am start -W COLD, Status ok, 370 ms. Paquete instalado
+7/0.7.0 verificado. XML fresco private/ui-0.7.xml: 29 nodos propios, versión 0.7
+y explicación de preflight visibles. Buffer crash propio: cero FATAL EXCEPTION.
+No se inició búsqueda, GATT, P2P ni USB remoto desde el ordenador; validación con
+vehículo pendiente. Se preservaron cambios locales 0.6, APK originales y logs;
+no hubo commit/push ni publicación de material privado.
+
+## 0.8 — campo de clave visible y pruebas UI reales — 2026-10-26
+
+Se revisaron los ocho TXT del teléfono y se conservaron copias privadas en
+private/vehicle-tests-2026-10-26-b/. Los cinco primeros mantienen sus hashes;
+los tres nuevos corresponden a 0.7. Análisis y procedencia en
+protocol-research/VEHICLE_DIAGNOSTICS_2026-10-26.md.
+
+Se deduplicaron timestamp/mensaje de los tres nuevos: 191 eventos únicos visibles,
+20 preparaciones normales bloqueadas, dos lecturas canceladas, tres inspecciones
+UnionShare correctas y un error GATT 133 aislado. No consta envío de PIN ni sesión.
+La clave en pantalla del coche es observación del propietario, no evidencia de
+intercambio completo con AionLink. El formulario faltaba por diseño de nuestra 0.7.
+
+Se investigó cómo obtener datos locales reales mediante accesos ADB de diagnóstico:
+cmd wifip2p help rechazó UID shell; ip link sobre p2p0 denegó permiso; el filtro
+de dumpsys no encontró el campo local. No se elevaron permisos, intentó root,
+extrajeron credenciales ni se imprimieron valores de dirección o configuración.
+No se consiguió una identidad utilizable. El bloqueo normal sigue sin resolver.
+
+Cambios independientes:
+
+- ConnectionCodeDialog visible desde el inicio del preflight, incluso si falla.
+  Permite introducir seis dígitos en memoria y muestra requisito y estado de
+  transmisión; Enviar sólo se habilita con datos reales READY y longitud válida.
+- Cerrar elimina el valor, cancela el preflight aún pendiente y evita que un
+  callback tardío vuelva a abrirlo. Caducidad y revalidación anteriores se conservan.
+- El historial exportable aumenta a 500 eventos, muestra contador de descartados
+  e ID aleatorio del proceso. UI renderiza sólo los 20 últimos eventos.
+- Cuatro pruebas instrumentadas independientes de red/vehículo: campo con bloqueo,
+  campo durante preflight, confirmación de seis dígitos y descarte al cerrar/reabrir.
+  Usan una clave ficticia y callbacks de prueba; no simulan una sesión ICCOA.
+
+Validación final: 6 Python, 40 JVM y 4 instrumentadas en el S25 (50 correctas).
+assembleDebug y lintDebug correctos, 0 errores/11 advertencias. Registros privados:
+artifacts/reports/android-build-0.8-final.log, android-ui-build-0.8-fixed.log y
+private/ui-tests-0.8-fixed.txt, que concluye explícitamente OK (4 tests).
+
+Incidencia resuelta: las cuatro pruebas UI iniciales fallaron antes de interactuar
+por NoSuchMethodException InputManager.getInstance de Espresso 3.6.1 en API 37.
+Se contrastó la corrección oficial y los metadatos Google Maven; se fijaron Espresso
+3.7.0, runner 1.7.0 y ext.junit 1.3.0. La repetición pasó las cuatro pruebas.
+La consulta de metadatos XML por web no funcionó; urllib leyó los XML oficiales.
+No confundir ese fallo del runner con el error GATT del propietario.
+
+Toolchain: Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, JBR 21, SDK/build-tools 35,
+Compose BOM 2025.04.01, Python 3.14.2 y ADB 37.0.0. apksigner verify correcto,
+con aviso Conscrypt conocido; git diff --check correcto.
+
+APK final 0.8.0-research, versionCode 8, 24 723 911 bytes; SHA-256
+`7b35463b5a49ed4525acff96a063e142f005c5689b9841c264e21a946c9f3b91`.
+Instalación final Success. Se desinstaló sólo nuestro paquete de pruebas y se
+restauró MainActivity: COLD, Status ok, 404 ms. XML fresco private/ui-0.8.xml con
+29 nodos propios y versión 0.8 visible. Buffer crash propio: cero FATAL EXCEPTION.
+
+No se hicieron escaneos o conexiones remotas desde el ordenador. Faltan identidad
+P2P accesible, autenticación, canales y proyección. La actualización corrige UI y
+evidencia, no acredita conexión completa. El propietario autorizó commit a main
+al finalizar; se incluyen código propio, pruebas y documentación, preservando
+originales, logs, artefactos y extracción privada fuera de la publicación.

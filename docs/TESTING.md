@@ -5,7 +5,7 @@ Pruebas automatizadas independientes de hardware:
 ```powershell
 python -m unittest discover -s tests/unit -v
 cd android
-./gradlew.bat :core:test :protocol-iccoa:test :app:assembleDebug :app:lintDebug --no-daemon --console plain
+./gradlew.bat :core:test :protocol-iccoa:test :transport-bluetooth:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon --console plain
 ```
 
 Las pruebas Python usan archivos sintéticos y cubren inventario ZIP, manifiesto y
@@ -85,3 +85,32 @@ en equipos ajenos. Ningún resultado de apertura sustituye autenticación/proyec
 Para declarar sesión ICCOA: intercambio bidireccional reproducible, confirmación
 del receptor identificada, estabilidad y desconexión limpia. Para proyección:
 vídeo realmente visible y evidencia de formatos negociados. No hay esas pruebas aún.
+
+## Pruebas actuales 0.8
+
+Estado actual: 6 Python, 40 JVM y 4 pruebas instrumentadas de interfaz en el S25.
+Las secciones anteriores conservan resultados históricos. Las pruebas de interfaz
+usan estados PREPARING/READY/BLOCKED y una clave ficticia, con callbacks de prueba;
+no hacen búsquedas, conexiones Bluetooth o Wi-Fi ni autentican un vehículo.
+
+Casos: campo visible con bloqueo; campo visible durante preflight; seis dígitos y
+confirmación explícita para enviar al callback; cerrar/reabrir descarta la clave.
+No interpretarlos como validación del intercambio normal contra el AION.
+
+Tras Build-Android.ps1, compilar `:app:assembleDebugAndroidTest`, instalar nuestra
+APK debug y app-debug-androidTest.apk con `adb -s SERIAL_AUTORIZADO install -r -t`.
+Ejecutar:
+
+```powershell
+adb -s SERIAL_AUTORIZADO shell am instrument -w -e class org.aionlink.open.ConnectionCodeDialogTest org.aionlink.open.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Comprobar explícitamente `OK (4 tests)`: am instrument puede devolver exit code 0
+aunque JUnit informe fallos. Limpiar después únicamente el paquete de pruebas
+`org.aionlink.open.test` y volver a abrir nuestra MainActivity.
+
+En Android API 37, Espresso 3.6.1 falló antes de ejecutar las interacciones por
+InputManager.getInstance ausente. La corrección publicada por Android usa
+getSystemService. Se fijaron versiones estables Espresso 3.7.0, runner 1.7.0 y
+ext.junit 1.3.0, comprobadas en los metadatos oficiales de Google Maven. Las cuatro
+pruebas pasaron después. Registros de ambas ejecuciones se conservan en private/.

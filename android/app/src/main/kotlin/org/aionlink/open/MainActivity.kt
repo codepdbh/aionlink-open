@@ -9,6 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -25,6 +28,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.aionlink.bluetooth.BluetoothDiscovery
 import org.aionlink.bluetooth.GattInspector
+import org.aionlink.bluetooth.BleNegotiator
+import org.aionlink.iccoa.ClientInfo
+import org.aionlink.iccoa.NormalLinkReadiness
+import org.aionlink.iccoa.normalLinkReadiness
+import org.aionlink.wifi.LocalP2p
+import org.aionlink.wifi.P2pConnector
+import org.aionlink.wifi.NetworkStage
 import org.aionlink.core.*
 import org.aionlink.iccoa.ICCOAProtocolAdapter
 import org.aionlink.iccoa.GattStage
@@ -34,13 +44,38 @@ import org.aionlink.usb.UsbAccessoryClient
 class DiagnosticsViewModel(application: Application) : AndroidViewModel(application) {
     val discovery = BluetoothDiscovery(application)
     val gatt = GattInspector(application)
+    val bootstrap = BleNegotiator(application)
+    val network = P2pConnector(application)
     val session = SessionCoordinator(ICCOAProtocolAdapter())
     private val mutableEvents = MutableStateFlow(listOf("Cliente de investigación iniciado. Compatibilidad sin verificar."))
     val events = mutableEvents.asStateFlow()
     val usb = UsbAccessoryClient(application, ::event)
-    fun event(message: String) { mutableEvents.value = (mutableEvents.value + "${java.time.Instant.now()} $message").takeLast(100) }
+    fun event(message: String) {
+        val next = mutableEvents.value + "${java.time.Instant.now()} $message"
+        droppedEvents += (next.size - 500).coerceAtLeast(0)
+        mutableEvents.value = next.takeLast(500)
+    }
+    private val exportCapture = DiagnosticExport()
+    private val mutablePinRequest = MutableStateFlow<String?>(null)
+    val pinRequest = mutablePinRequest.asStateFlow()
+    private val mutableCodeReadiness = MutableStateFlow(CodeReadiness.IDLE)
+    val codeReadiness = mutableCodeReadiness.asStateFlow()
+    private val runId = java.util.UUID.randomUUID().toString().take(8)
+    private var droppedEvents = 0
+    private val mutableConnectionNotice = MutableStateFlow("Comprueba los requisitos antes de introducir un c\u00f3digo")
+    val connectionNotice = mutableConnectionNotice.asStateFlow()
+    private class Prepared(val peerId: String, val local: LocalP2p)
+    private var prepared: Prepared? = null
+    private var attemptNumber = 0
+    private val prepareHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val prepareExpiry = Runnable { cancelPrepared("La preparaci\u00f3n para introducir el c\u00f3digo caduc\u00f3") }
+    fun captureExport() {
+        event("Exportaci\u00f3n solicitada: snapshot previo al selector Android")
+        exportCapture.capture { export() }
+    }
+    fun consumeExport() = exportCapture.consume()
     fun scan(iccoaOnly: Boolean = true) {
-        gatt.cancel()
+        cancelPrepared(); gatt.cancel(); bootstrap.cancel("Nueva b\u00fasqueda"); network.stop("Nueva b\u00fasqueda")
         discovery.stop()
         session.startDiscovery(); event("Modo: ${if (iccoaOnly) "ICCOA FCFB" else "general Classic/BLE"}"); event("Descubrimiento Bluetooth solicitado por el usuario")
         discovery.start(iccoaOnly) { error ->
@@ -48,7 +83,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             else { session.discoveryFinished(); event("Candidatos UUID: ${discovery.devices.value.count { it.recognizedServices.isNotEmpty() }}"); event("Descubrimiento finalizado: ${discovery.devices.value.size} observaciones") }
         }
     }
-    fun stop() { discovery.stop(); gatt.cancel(); usb.stop(); session.disconnect(); event("Búsqueda/enlace detenido") }
+    fun stop() { stopAll("Detenido por el usuario") }
+    private fun stopAll(reason: String) {
+        cancelPrepared(reason); discovery.stop(); gatt.cancel(); bootstrap.cancel(reason); network.stop(reason)
+        usb.stop(); session.disconnect(); event(reason)
+    }
     fun inspect(peerId: String) {
         val peer = discovery.observedBleDevice(peerId)
         if (peer == null) { event("Dispositivo no disponible; realiza una nueva búsqueda"); return }
@@ -60,15 +99,89 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             } else event("Inspección GATT: ${result.stage}; ${result.error ?: "sin detalle"}")
         }
     }
+    fun prepareConnection(peerId: String, readOnly: Boolean = false) {
+        if (discovery.observedBleDevice(peerId) == null) { event("Receptor no disponible; busca de nuevo"); return }
+        cancelPrepared(); discovery.stop(); gatt.cancel(); bootstrap.reset()
+        attemptNumber++; event("Intento local #$attemptNumber; modo=${if (readOnly) "READ_ONLY_NO_PIN" else "NORMAL_CLIENT_INFO"}")
+        event(if (readOnly) "Consulta de lectura solicitada: no usa PIN" else "Comprobaci\u00f3n local antes de solicitar PIN")
+        mutableConnectionNotice.value = "Comprobando Wi-Fi Direct local..."
+        if (!readOnly) {
+            mutableCodeReadiness.value = CodeReadiness.PREPARING
+            mutablePinRequest.value = peerId
+        }
+        network.prepare { local ->
+            if (readOnly) {
+                mutableConnectionNotice.value = "Consulta de diagn\u00f3stico sin PIN ni ClientInfo; no es autenticaci\u00f3n"
+                val peer = discovery.observedBleDevice(peerId)
+                if (peer == null) { network.stop(); return@prepare }
+                bootstrap.readAvailableServerInfo(peer) { info ->
+                    event("ServerInfo obtenido por READ; solicitando red, sin sesi\u00f3n ICCOA")
+                    network.connect(info)
+                }
+            } else if (normalLinkReadiness(local.address) != NormalLinkReadiness.READY) {
+                val message = "Conexi\u00f3n normal bloqueada: Android oculta la direcci\u00f3n Wi-Fi Direct local. La clave puede introducirse en pantalla, pero no se enviar\u00e1 mientras falte este requisito. La lectura experimental es una acci\u00f3n separada."
+                mutableCodeReadiness.value = CodeReadiness.BLOCKED
+                mutableConnectionNotice.value = message; event(message); network.stop("Requisito local no disponible")
+            } else {
+                prepared = Prepared(peerId, local)
+                mutableCodeReadiness.value = CodeReadiness.READY
+                mutablePinRequest.value = peerId
+                mutableConnectionNotice.value = "Requisitos locales disponibles. Introduce el c\u00f3digo de tu receptor"
+                prepareHandler.postDelayed(prepareExpiry, 60000)
+            }
+        }
+    }
+    fun cancelPrepared(reason: String = "Entrada de c\u00f3digo cancelada") {
+        prepareHandler.removeCallbacks(prepareExpiry)
+        val existed = prepared != null
+        val hadDialog = mutablePinRequest.value != null
+        val wasPreparing = mutableCodeReadiness.value == CodeReadiness.PREPARING
+        prepared = null; mutablePinRequest.value = null; mutableCodeReadiness.value = CodeReadiness.IDLE
+        if (existed || hadDialog) network.stop(reason)
+        if (existed || wasPreparing) { mutableConnectionNotice.value = reason; event(reason) }
+    }
+    fun submitPin(pin: String) {
+        val request = prepared ?: return
+        if (mutableCodeReadiness.value != CodeReadiness.READY || network.state.value.stage != NetworkStage.READY) {
+            cancelPrepared("La preparaci\u00f3n de red ya no est\u00e1 disponible; c\u00f3digo descartado")
+            return
+        }
+        prepareHandler.removeCallbacks(prepareExpiry)
+        prepared = null; mutablePinRequest.value = null; mutableCodeReadiness.value = CodeReadiness.IDLE
+        val peer = discovery.observedBleDevice(request.peerId)
+        val address = request.local.address
+        if (peer == null || address == null) { network.stop(); return }
+        try {
+            val preferences = getApplication<Application>().getSharedPreferences("own-client", 0)
+            val id = preferences.getString("id", null) ?: java.util.UUID.randomUUID().toString().replace("-", "").take(6).also {
+                preferences.edit().putString("id", it).apply()
+            }
+            val hello = ClientInfo(id, Build.MODEL, pin, address, request.local.supports5Ghz)
+            mutableConnectionNotice.value = "Intentando ClientInfo normal; espera confirmaci\u00f3n de escritura"
+            event("PIN entregado al intercambio normal; valor omitido, env\u00edo todav\u00eda sin confirmar")
+            bootstrap.start(peer, hello) { info ->
+                event("ServerInfo recibido tras ClientInfo; solicitando Wi-Fi Direct")
+                network.connect(info)
+            }
+        } catch (_: IllegalArgumentException) {
+            network.stop(); mutableConnectionNotice.value = "ClientInfo no v\u00e1lido; no se enviaron datos"
+            event(mutableConnectionNotice.value)
+        }
+    }
+    fun background() { stopAll("Activity en segundo plano (puede incluir selector de archivos o cambio de app)") }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.5.0-research")
+        appendLine("AionLink Open 0.8.0-research")
+        appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
         appendLine("Permisos: ${discovery.hasPermissions()}")
         appendLine("Búsqueda activa: ${discovery.isScanning.value}")
         appendLine("ICCOA: sin sesión verificada")
         appendLine("Observaciones actuales: ${discovery.devices.value.size} (no equivale a dispositivos únicos)")
+        appendLine("Proceso local: $runId; eventos=${mutableEvents.value.size}; eventos anteriores omitidos=$droppedEvents")
+        appendLine("Formulario: ${mutableCodeReadiness.value}; solicitud visible=${mutablePinRequest.value != null}; valor de clave omitido")
+        appendLine("Intento local: $attemptNumber")
         appendLine("Candidatos UUID: ${discovery.devices.value.count { it.recognizedServices.isNotEmpty() }}")
         discovery.devices.value.forEach { peer ->
             appendLine("ID temporal=${peer.id}; transporte=${peer.transport}; RSSI=${peer.rssi}; conectable=${peer.connectable}; servicios anunciados=${peer.observedServiceCount}")
@@ -81,6 +194,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             appendLine("Característica conocida=${it.uuid}; propiedades=${it.properties}; sin lectura de valor")
         }
         appendLine("Resultado GATT no equivale a sesión ICCOA; enlace de inspección se cierra al terminar.")
+        val negotiation = bootstrap.state.value
+        appendLine("Intercambio BLE: ${negotiation.stage}; MTU=${negotiation.mtu}; enviados=${negotiation.bytesSent}; recibidos=${negotiation.bytesReceived}")
+        appendLine("Intercambio modo=${negotiation.mode}; escritura confirmada=${negotiation.writeConfirmed}")
+        appendLine("Intercambio detalle=${negotiation.message}")
+        appendLine("Preparaci\u00f3n: ${mutableConnectionNotice.value}")
+        appendLine("Red: ${network.state.value.stage}; ${network.state.value.message}")
+        appendLine("PIN, MAC, SSID, PSK y contenido ServerInfo omitidos. Red conectada no implica autenticaci\u00f3n ICCOA.")
         val cable = usb.state.value
         appendLine("USB: etapa=${cable.stage}; accesorios=${cable.accessories.size}; dispositivos en modo host=${cable.hostDevices}; alimentación reportada USB=${cable.usbPower}")
         cable.accessories.forEach { appendLine("Accesorio temporal=${it.id}; identificador ICCOA observado=${it.observedIccoa}; permiso=${it.permission}") }
@@ -89,10 +209,23 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("No se incluye serial USB ni payload. USB abierto no implica sesión ICCOA.")
         append(events.value.joinToString("\n"))
     }
-    init { viewModelScope.launch { discovery.devices.collect { devices ->
+    init {
+        viewModelScope.launch { bootstrap.state.collect {
+            event("Intercambio BLE: ${it.stage}; ${it.message}")
+            if (it.stage in setOf(org.aionlink.bluetooth.BootstrapStage.ERROR, org.aionlink.bluetooth.BootstrapStage.CANCELLED) && network.state.value.stage == NetworkStage.READY) network.stop()
+        } }
+        viewModelScope.launch { network.state.collect {
+            event("Red: ${it.stage}; ${it.message}")
+            if (it.stage == NetworkStage.ERROR && mutablePinRequest.value != null) {
+                prepareHandler.removeCallbacks(prepareExpiry); prepared = null
+                mutableCodeReadiness.value = CodeReadiness.BLOCKED
+                mutableConnectionNotice.value = it.message
+            }
+        } }
+        viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
     } } }
-    override fun onCleared() { discovery.stop(); gatt.cancel(); usb.close() }
+    override fun onCleared() { stopAll("ViewModel finalizado"); usb.close() }
 }
 
 class MainActivity : ComponentActivity() {
@@ -104,7 +237,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() { super.onResume(); if (::diagnostics.isInitialized) diagnostics.usb.refresh() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); diagnostics.usb.refresh() }
-    override fun onStop() { if (::diagnostics.isInitialized) diagnostics.usb.stop(); super.onStop() }
+    override fun onStop() { if (::diagnostics.isInitialized) diagnostics.background(); super.onStop() }
 }
 
 @Composable fun AionLinkScreen(model: DiagnosticsViewModel = viewModel()) {
@@ -114,10 +247,24 @@ class MainActivity : ComponentActivity() {
     val scanning by model.discovery.isScanning.collectAsStateWithLifecycle()
     val inspection by model.gatt.state.collectAsStateWithLifecycle()
     val cable by model.usb.state.collectAsStateWithLifecycle()
-    val gattBusy = inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
+    val negotiation by model.bootstrap.state.collectAsStateWithLifecycle()
+    val network by model.network.state.collectAsStateWithLifecycle()
+    val gattBusy = negotiation.busy || network.busy || network.stage == NetworkStage.CONNECTED || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     var showOthers by remember { mutableStateOf(false) }
     val candidates = devices.filter { it.recognizedServices.isNotEmpty() }
     var pendingPeer by remember { mutableStateOf<String?>(null) }
+    val pendingConnect by model.pinRequest.collectAsStateWithLifecycle()
+    val codeReadiness by model.codeReadiness.collectAsStateWithLifecycle()
+    val connectionNotice by model.connectionNotice.collectAsStateWithLifecycle()
+    val scroll = rememberScrollState()
+    LaunchedEffect(connectionNotice) { scroll.animateScrollTo(0) }
+    var pendingRead by remember { mutableStateOf<String?>(null) }
+    var authorizedConnect by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val networkPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val request = authorizedConnect; authorizedConnect = null
+        if (request != null && model.network.hasPermissions()) model.prepareConnection(request.first, request.second)
+        else model.event("Permisos Wi-Fi no concedidos; intercambio no iniciado")
+    }
     var pendingUsb by remember { mutableStateOf<Pair<String,Boolean>?>(null) }
     var requestedIccoaOnly by remember { mutableStateOf(true) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -125,13 +272,16 @@ class MainActivity : ComponentActivity() {
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        uri?.let { try {
-            val stream = context.contentResolver.openOutputStream(it) ?: error("No output stream")
-            stream.bufferedWriter().use { writer -> writer.write(model.export()) }
-            model.event("Diagnóstico exportado sin nombres ni direcciones Bluetooth")
-        } catch (_: Exception) { model.event("No se pudo exportar el diagnóstico") } }
+        val frozen = model.consumeExport()
+        if (uri != null && frozen == null) {
+            model.event("La captura se perdi\u00f3 al recrear el proceso; vuelve a exportar. Archivo no abierto")
+        } else if (uri != null && frozen != null) try {
+            val stream = context.contentResolver.openOutputStream(uri) ?: error("No output stream")
+            stream.bufferedWriter().use { writer -> writer.write(frozen) }
+            model.event("Diagn\u00f3stico previo al selector exportado sin nombres ni direcciones Bluetooth")
+        } catch (_: Exception) { model.event("No se pudo exportar el diagn\u00f3stico") }
+
     }
-    DisposableEffect(model) { onDispose { model.stop() } }
     pendingPeer?.let { peerId ->
         AlertDialog(
             onDismissRequest = { pendingPeer = null },
@@ -140,6 +290,21 @@ class MainActivity : ComponentActivity() {
             confirmButton = { TextButton(onClick = { pendingPeer = null; model.inspect(peerId) }) { Text("Conectar a mi vehículo") } },
             dismissButton = { TextButton(onClick = { pendingPeer = null }) { Text("Cancelar") } }
         )
+    }
+    pendingConnect?.let {
+        ConnectionCodeDialog(codeReadiness, connectionNotice, onSubmit = model::submitPin,
+            onClose = { model.cancelPrepared() })
+    }
+    pendingRead?.let { peerId ->
+        AlertDialog(onDismissRequest = { pendingRead = null },
+            title = { Text("Consulta de diagn\u00f3stico a mi veh\u00edculo") },
+            text = { Text("Confirma que es tu veh\u00edculo estacionado. Se leer\u00e1 ServerInfo durante un m\u00e1ximo de 15 segundos, sin usar PIN ni enviar ClientInfo. La prueba anterior no obtuvo respuesta. Si devuelve par\u00e1metros v\u00e1lidos se intentar\u00e1 formar su red; esto no autentica ICCOA.") },
+            confirmButton = { TextButton(onClick = {
+                pendingRead = null
+                if (model.network.hasPermissions()) model.prepareConnection(peerId, true)
+                else { authorizedConnect = peerId to true; networkPermission.launch(model.network.requiredPermissions()) }
+            }) { Text("Consultar mi receptor") } },
+            dismissButton = { TextButton(onClick = { pendingRead = null }) { Text("Cancelar") } })
     }
     pendingUsb?.let { (id,bootstrap) ->
         AlertDialog(onDismissRequest = { pendingUsb = null },
@@ -151,11 +316,12 @@ class MainActivity : ComponentActivity() {
             dismissButton = { TextButton(onClick = { pendingUsb = null }) { Text("Cancelar") } })
     }
     Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.5.0")
+            Text("Cliente USB + Bluetooth experimental • v0.8.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
+            Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
             Text("Buscar receptor ICCOA", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { requestedIccoaOnly = true; if (model.discovery.hasPermissions()) model.scan() else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy, modifier = Modifier.fillMaxWidth()) { Text("Buscar ICCOA CarLink") }
             if (scanning) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Buscando durante 15 segundos...") }
@@ -167,13 +333,22 @@ class MainActivity : ComponentActivity() {
                         Text(device.name, style = MaterialTheme.typography.titleMedium)
                         Text("${device.transport} | RSSI ${device.rssi ?: "?"} | ID ${device.id}")
                         Text("UUID compatible observado; identidad del veh\u00edculo sin confirmar.")
-                        Button(onClick = { pendingPeer = device.id }, enabled = !gattBusy && device.connectable != false, modifier = Modifier.fillMaxWidth()) { Text("Comprobar este receptor") }
+                        Button(onClick = {
+                            if (model.network.hasPermissions()) model.prepareConnection(device.id)
+                            else { authorizedConnect = device.id to false; networkPermission.launch(model.network.requiredPermissions()) }
+                        }, enabled = !gattBusy && device.connectable != false, modifier = Modifier.fillMaxWidth()) { Text("Preparar conexi\u00f3n normal") }
+                        OutlinedButton(onClick = { pendingPeer = device.id }, enabled = !gattBusy && device.connectable != false, modifier = Modifier.fillMaxWidth()) { Text("Solo comprobar servicios BLE") }
                         if (device.connectable == false) Text("El anuncio actual no permite conexi\u00f3n BLE.")
+                        TextButton(onClick = { pendingRead = device.id }, enabled = !gattBusy && device.connectable != false) { Text("Lectura experimental sin PIN") }
                         HorizontalDivider()
                     }
                 }
             }
             Text("Comprobaci\u00f3n BLE: ${inspection.stage}")
+            Text("Intercambio: ${negotiation.stage} | Red: ${network.stage}", style = MaterialTheme.typography.titleMedium)
+            Text(negotiation.message)
+            Text(network.message)
+            if (negotiation.busy || network.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             OutlinedButton(onClick = model::stop) { Text("Detener b\u00fasqueda / enlace") }
             OutlinedButton(onClick = { requestedIccoaOnly = false; if (model.discovery.hasPermissions()) model.scan(false) else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy) { Text("B\u00fasqueda general Classic + BLE") }
             TextButton(onClick = { showOthers = !showOthers }) { Text("${if (showOthers) "Ocultar" else "Mostrar"} otras observaciones (${devices.size - candidates.size})") }
@@ -185,7 +360,7 @@ class MainActivity : ComponentActivity() {
                     if (device.transport == "BLE") OutlinedButton(onClick = { pendingPeer = device.id }, enabled = !gattBusy && device.connectable != false) { Text("Comprobar servicios BLE") }
                 } }
             }
-            OutlinedButton(onClick = { export.launch("aionlink-diagnostics.txt") }) { Text("Guardar diagn\u00f3stico") }
+            OutlinedButton(onClick = { model.captureExport(); export.launch("aionlink-diagnostics.txt") }) { Text("Guardar diagn\u00f3stico") }
             Text("Conexión por cable", style = MaterialTheme.typography.titleLarge)
             Text("USB: ${cable.stage} • Accesorios AOA: ${cable.accessories.size}")
             Text("Alimentación reportada USB: ${cable.usbPower} • Dispositivos modo host: ${cable.hostDevices}")
@@ -214,8 +389,8 @@ class MainActivity : ComponentActivity() {
             Text("Perfil de investigación: ${VehicleProfiles.aionI60.brand} ${VehicleProfiles.aionI60.model} — NOT YET VERIFIED")
             Text("Diagnóstico", style = MaterialTheme.typography.titleLarge)
             Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\nPermisos concedidos: ${model.discovery.hasPermissions()}\nTransporte: descubrimiento Classic/BLE; sin canal de sesión")
-            OutlinedButton(onClick = { export.launch("aionlink-diagnostics.txt") }) { Text("Exportar diagnóstico anonimizado") }
-            events.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            OutlinedButton(onClick = { model.captureExport(); export.launch("aionlink-diagnostics.txt") }) { Text("Exportar diagnóstico anonimizado") }
+            events.takeLast(20).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

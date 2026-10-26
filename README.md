@@ -40,8 +40,8 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 ```
 
 > **Estado actual: experimental.** Hay una APK debug compilada e instalada en el
-> teléfono de pruebas. Incluye descubrimiento Bluetooth, conexión GATT de inspección
-> bajo selección del usuario, transporte USB/AOA experimental y diagnósticos.
+> teléfono de pruebas. Incluye descubrimiento Bluetooth, inspección GATT, intercambio
+> BLE inicial y conexión Wi-Fi Direct experimentales, USB/AOA y diagnósticos.
 > **La sesión ICCOA y la proyección en el AION todavía no están verificadas.**
 > Encontrar un dispositivo o emparejar Bluetooth no demuestra una sesión.
 
@@ -51,7 +51,8 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 |---|---|---|
 | Aplicación Android | Kotlin, Jetpack Compose, Material 3 y ViewModel | Compilada e instalada |
 | Descubrimiento | BLE filtrado ICCOA de 15 segundos, alternativa Classic/BLE y candidatos destacados | Implementado en 0.5; identidad del receptor por verificar |
-| Enlace BLE | Conexión al vehículo seleccionado, descubrimiento GATT y cierre | Implementado en 0.3; prueba con AION pendiente |
+| Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
+| Intercambio BLE + red | Clave visible con requisitos y envío condicionado; ClientInfo requiere identidad P2P real; READ separado | 0.8: cuatro pruebas de interfaz en S25; bloqueo P2P y sesión pendientes |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
