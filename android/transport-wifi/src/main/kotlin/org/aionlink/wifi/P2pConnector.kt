@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.content.*
 import android.content.pm.PackageManager
 import android.net.MacAddress
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.*
 import android.os.*
@@ -12,12 +14,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.aionlink.iccoa.ServerInfo
 import org.aionlink.iccoa.validUnicastMac
+import org.aionlink.iccoa.PlatformP2pAddress
+import org.aionlink.iccoa.AddressDisclosure
+import org.aionlink.iccoa.NetworkMode
 
 enum class NetworkStage { IDLE, PREPARING, READY, CONNECTING, CONNECTED, ERROR, CANCELLED }
-data class P2pStatus(val stage: NetworkStage = NetworkStage.IDLE, val message: String = "Red sin preparar") {
+data class P2pStatus(val stage: NetworkStage = NetworkStage.IDLE, val message: String = "Red sin preparar", val mode: NetworkMode? = null) {
     val busy get() = stage in setOf(NetworkStage.PREPARING, NetworkStage.CONNECTING)
 }
-class LocalP2p(val address: String?, val supports5Ghz: Boolean) {
+class LocalP2p(val platformAddress: PlatformP2pAddress, val supports5Ghz: Boolean) {
+    val address get() = platformAddress.realValueOrNull()
     override fun toString() = "LocalP2p(redacted)"
 }
 
@@ -27,6 +33,11 @@ class P2pConnector(context: Context) {
     private val context = context.applicationContext
     private val manager = context.getSystemService(WifiP2pManager::class.java)
     private val wifi = context.getSystemService(WifiManager::class.java)
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private var apCallback: ConnectivityManager.NetworkCallback? = null
+    private var apNetwork: Network? = null
+    val systemWifiHandoff get() = mutable.value.mode == NetworkMode.ACCESS_POINT &&
+        mutable.value.stage in setOf(NetworkStage.CONNECTING, NetworkStage.CONNECTED)
     private val handler = Handler(Looper.getMainLooper())
     private var channel: WifiP2pManager.Channel? = null
     private var generation = 0
@@ -41,7 +52,7 @@ class P2pConnector(context: Context) {
     fun requiredPermissions() = if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
         else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
     fun hasPermissions() = requiredPermissions().all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-    private fun publish(stage: NetworkStage, message: String) { mutable.value = P2pStatus(stage, message) }
+    private fun publish(stage: NetworkStage, message: String) { mutable.value = P2pStatus(stage, message, mutable.value.mode) }
     private fun action(ticket: Int, success: () -> Unit) = object : WifiP2pManager.ActionListener {
         override fun onSuccess() { if (ticket == generation) success() }
         override fun onFailure(reason: Int) { if (ticket == generation) fail("Wi-Fi Direct rechazó la operación ($reason)") }
@@ -51,7 +62,7 @@ class P2pConnector(context: Context) {
         if (!hasPermissions()) { fail("Falta permiso de dispositivos Wi-Fi cercanos"); return }
         if (wifi?.isWifiEnabled != true || manager == null) { fail("Activa Wi-Fi para preparar el enlace"); return }
         val ticket = generation
-        publish(NetworkStage.PREPARING, "Solicitando identidad Wi-Fi Direct a Android")
+        mutable.value = P2pStatus(NetworkStage.PREPARING, "Solicitando identidad Wi-Fi Direct a Android")
         arm(10000, "Android no entregó los datos P2P a tiempo")
         try {
             val connection = manager.initialize(context, Looper.getMainLooper()) {
@@ -66,12 +77,14 @@ class P2pConnector(context: Context) {
                     manager.requestDeviceInfo(connection) { device ->
                         if (ticket != generation) return@requestDeviceInfo
                         val address = device?.deviceAddress
-                        val usable = address?.takeIf(::validUnicastMac)
+                        val identity = PlatformP2pAddress.fromPlatform(address)
                         disarm()
-                        publish(NetworkStage.READY, if (usable == null)
-                            "Android oculta la dirección P2P local; sólo se podrá consultar ServerInfo legible"
-                            else "Identidad P2P local preparada; sin enlace remoto")
-                        onReady(LocalP2p(usable, wifi.is5GHzBandSupported))
+                        publish(NetworkStage.READY, when (identity.disclosure) {
+                            AddressDisclosure.AVAILABLE -> "Identidad P2P local preparada; sin enlace remoto"
+                            AddressDisclosure.ANDROID_ANONYMIZED -> "Android devolvió un dato anonimizado; experimento posible sólo con consentimiento"
+                            AddressDisclosure.UNAVAILABLE -> "Android no devolvió metadatos P2P utilizables"
+                        })
+                        onReady(LocalP2p(identity, wifi.is5GHzBandSupported))
                     }
                 } catch (_: SecurityException) { fail("Permisos Wi-Fi revocados") }
             }
@@ -85,6 +98,8 @@ class P2pConnector(context: Context) {
             fail("La preparación P2P ya no está disponible"); return
         }
         val ticket = generation
+        mutable.value = mutable.value.copy(mode = info.mode)
+        if (info.mode == NetworkMode.ACCESS_POINT) { connectAccessPoint(info, ticket); return }
         target = Target(info.ssid, info.mac)
         publish(NetworkStage.CONNECTING, "Solicitando red Wi-Fi Direct del receptor; acepta el diálogo Android si aparece")
         arm(45000, "No se formó la red Wi-Fi Direct en 45 segundos")
@@ -101,6 +116,29 @@ class P2pConnector(context: Context) {
         } catch (_: SecurityException) { fail("Permisos Wi-Fi revocados") }
         catch (_: IllegalArgumentException) { fail("Android no admite los parámetros P2P recibidos; contenido omitido") }
         catch (_: IllegalStateException) { fail("Wi-Fi Direct no disponible") }
+    }
+    private fun connectAccessPoint(info: ServerInfo, ticket: Int) {
+        val service = connectivity ?: return fail("Servicio de red no disponible")
+        publish(NetworkStage.CONNECTING, "El receptor indicó modo AP; acepta la conexión Wi-Fi solicitada por Android")
+        arm(45000, "La red AP del receptor no se obtuvo en 45 segundos")
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (ticket != generation || apCallback !== this) return
+                apNetwork = network; disarm()
+                publish(NetworkStage.CONNECTED, "Android concedió la red AP solicitada para este receptor. Autenticación ICCOA pendiente")
+            }
+            override fun onUnavailable() {
+                if (ticket == generation && apCallback === this) fail("Android no autorizó o no pudo obtener la red AP solicitada")
+            }
+            override fun onLost(network: Network) {
+                if (ticket == generation && apCallback === this && apNetwork == network) fail("La red AP concedida se desconectó")
+            }
+        }
+        apCallback = callback
+        try { service.requestNetwork(accessPointRequest(info), callback, handler, 45000) }
+        catch (_: SecurityException) { fail("Android no autorizó la solicitud de red AP") }
+        catch (_: IllegalArgumentException) { fail("Parámetros de red AP no admitidos; contenido omitido") }
+        catch (_: IllegalStateException) { fail("Solicitud de red AP no disponible") }
     }
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -151,6 +189,10 @@ class P2pConnector(context: Context) {
     private fun release() {
         generation++
         disarm()
+        val callback = apCallback; apCallback = null; apNetwork = null
+        if (callback != null) try { connectivity?.unregisterNetworkCallback(callback) }
+        catch (_: IllegalArgumentException) { }
+        catch (_: SecurityException) { }
         if (registered) { context.unregisterReceiver(receiver); registered = false }
         val connection = channel
         try {

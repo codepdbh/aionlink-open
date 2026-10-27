@@ -51,7 +51,11 @@ class BleNegotiator(context: Context) {
         val ticket = generation
         payload = info?.encode(); output = onServer
         mutable.value = BootstrapStatus(BootstrapStage.CONNECTING, message = "Abriendo enlace BLE",
-            mode = if (info == null) "READ_ONLY_NO_PIN" else "NORMAL_CLIENT_INFO")
+            mode = when {
+                info == null -> "READ_ONLY_NO_PIN"
+                info.usesAnonymizedMetadata -> "CLIENT_INFO_PLATFORM_ANONYMIZED_EXPERIMENT"
+                else -> "NORMAL_CLIENT_INFO"
+            })
         fun dispatch(gatt: BluetoothGatt, block: () -> Unit) { handler.post {
             if (generation == ticket && active === gatt) try { block() }
             catch (_: SecurityException) { fail("Permisos Bluetooth revocados") }
@@ -144,11 +148,12 @@ class BleNegotiator(context: Context) {
                     try {
                         if (ticket != generation || active !== gatt || mutable.value.stage != BootstrapStage.READING_SERVER) return@post
                         if (status != BluetoothGatt.GATT_SUCCESS) { fail("Lectura ServerInfo rechazada ($status); no se intenta eludirla"); return@post }
-                        val parsed = try { ServerInfo.parse(copy) } catch (_: IllegalArgumentException) {
-                            fail("ServerInfo no disponible antes de ClientInfo; falta dirección P2P local accesible. Contenido omitido")
+                        mutable.value = mutable.value.copy(bytesReceived = copy.size)
+                        val parsed = try { ServerInfo.parse(copy) } catch (error: IllegalArgumentException) {
+                            val reason = (error as? ServerInfoException)?.fault?.name ?: "UNKNOWN"
+                            fail("ServerInfo no v\u00e1lido en READ ($reason); no se envi\u00f3 ClientInfo ni PIN. Contenido omitido")
                             return@post
                         }
-                        mutable.value = mutable.value.copy(bytesReceived = copy.size)
                         accept(parsed)
                     } finally { copy.fill(0) }
                 }
@@ -166,10 +171,11 @@ class BleNegotiator(context: Context) {
                 handler.post {
                     try {
                         if (generation != ticket || active !== gatt || mutable.value.stage !in setOf(BootstrapStage.WRITING, BootstrapStage.WAITING_SERVER)) return@post
-                        val parsed = try { ServerInfo.parse(copy) } catch (_: IllegalArgumentException) {
-                            fail("Respuesta ServerInfo no válida o topología no admitida; contenido omitido"); return@post
-                        }
                         mutable.value = mutable.value.copy(bytesReceived = copy.size)
+                        val parsed = try { ServerInfo.parse(copy) } catch (error: IllegalArgumentException) {
+                            val reason = (error as? ServerInfoException)?.fault?.name ?: "UNKNOWN"
+                            fail("ServerInfo rechazado por nuestro parser ($reason); contenido omitido"); return@post
+                        }
                         delivery.response(parsed)?.let { accept(it) }
                     } finally { copy.fill(0) }
                 }

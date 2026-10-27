@@ -52,16 +52,17 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Aplicación Android | Kotlin, Jetpack Compose, Material 3 y ViewModel | Compilada e instalada |
 | Descubrimiento | BLE filtrado ICCOA de 15 segundos, alternativa Classic/BLE y candidatos destacados | Implementado en 0.5; identidad del receptor por verificar |
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
-| Intercambio BLE + red | Clave visible con requisitos y envío condicionado; ClientInfo requiere identidad P2P real; READ separado | 0.8: cuatro pruebas de interfaz en S25; bloqueo P2P y sesión pendientes |
+| Intercambio BLE + red | ClientInfo con dato real o experimento consentido con retorno anonimizado de Android; P2P/AP según respuesta | 0.9: envío y red aún por validar con AION; autenticación pendiente |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
 | Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |
 
-**Validación local de v0.4:** 6 pruebas Python y 23 pruebas JVM aprobadas; compilación debug
-correcta; lint con 0 errores y 8 advertencias. Estos resultados verifican componentes
-propios, no compatibilidad con el vehículo.
+**Validación:** consultar [pruebas](docs/TESTING.md) y [progreso](docs/PROGRESS.md)
+para los resultados de cada versión. Los tests verifican componentes propios,
+no compatibilidad con el vehículo. La [prueba nueva de 0.9](docs/protocol-research/INTEROPERABILITY_EXPERIMENT_09.md)
+explica qué cambia respecto al bloqueo anterior y qué sigue sin implementar.
 
 ## Compilar en Windows
 

@@ -9,7 +9,7 @@ class BleBootstrapTest {
         .put("mac", "02:11:22:33:44:66").put("freq", 5180).put("port", "57209").put("type", 1001)
     private fun parse(json: JSONObject) = ServerInfo.parse(json.toString().toByteArray())
     @Test fun ownIdentityAndBandAreEncodedWithoutOemImpersonation() {
-        val client = ClientInfo("A1B2C3", "Test \"model\"", "123456", "02:11:22:33:44:66", true)
+        val client = ClientInfo("A1B2C3", "Test \"model\"", "123456", PlatformP2pAddress.fromPlatform("02:11:22:33:44:66"), true)
         val json = JSONObject(String(client.encode()))
         assertEquals("AionLink Open", json.getString("name"))
         assertEquals("Test \"model\"", json.getString("model"))
@@ -28,7 +28,7 @@ class BleBootstrapTest {
         assertFalse(result.toString().contains("test-only-passphrase"))
     }
     @Test fun unsupportedTopologyIsRejectedWithoutLeakingContent() {
-        try { parse(server().put("type", 1002)); fail() } catch (e: IllegalArgumentException) {
+        try { parse(server().put("type", 9999)); fail() } catch (e: IllegalArgumentException) {
             assertFalse(e.message!!.contains("test-only-passphrase"))
         }
     }

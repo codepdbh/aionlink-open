@@ -86,7 +86,7 @@ Para declarar sesión ICCOA: intercambio bidireccional reproducible, confirmaci�
 del receptor identificada, estabilidad y desconexión limpia. Para proyección:
 vídeo realmente visible y evidencia de formatos negociados. No hay esas pruebas aún.
 
-## Pruebas actuales 0.8
+## Pruebas 0.8
 
 Estado actual: 6 Python, 40 JVM y 4 pruebas instrumentadas de interfaz en el S25.
 Las secciones anteriores conservan resultados históricos. Las pruebas de interfaz
@@ -114,3 +114,26 @@ InputManager.getInstance ausente. La corrección publicada por Android usa
 getSystemService. Se fijaron versiones estables Espresso 3.7.0, runner 1.7.0 y
 ext.junit 1.3.0, comprobadas en los metadatos oficiales de Google Maven. Las cuatro
 pruebas pasaron después. Registros de ambas ejecuciones se conservan en private/.
+
+## Pruebas actuales 0.9
+
+Total final: 6 Python, 51 JVM (7 core, 40 protocolo, 4 Bluetooth) y 9 Android.
+Las pruebas nuevas de protocolo cubren consentimiento, conservación del retorno
+Android sin fabricar un sustituto, separación del endpoint remoto, modos 1001/1002
+y errores de respuesta clasificados sin valores privados.
+
+Las 9 pruebas Android se ejecutan sin filtro de clase con am instrument:
+
+- Seis de interfaz: los cuatro casos anteriores más consentimiento experimental
+  obligatorio y su descarte al cerrar. Usan el texto real del diálogo para comprobar
+  que la casilla está visible en el S25, con código ficticio y sin envío remoto.
+- Dos de construcción de NetworkRequest: Wi-Fi local sin Internet y rechazo de
+  convertir una respuesta P2P en AP. Sólo construyen objetos; no solicitan redes.
+- Una consulta pública de metadatos locales mediante P2pConnector. No escanea,
+  crea grupos ni se conecta a otro equipo. Requiere Wi-Fi ya encendido y permiso
+  normal concedido; puede omitirse si faltan. Para afirmar que ese teléfono ofrece
+  el modo experimental debe aparecer LOCAL_P2P_METADATA_KIND=ANDROID_ANONYMIZED.
+
+En el S25 se obtuvo esa clasificación y OK (9 tests), sin omisiones. No se imprimió
+la dirección ni parámetros de red. Ninguno de estos tests prueba que el receptor
+AION acepte ClientInfo anonimizado. Véase INTEROPERABILITY_EXPERIMENT_09.md.

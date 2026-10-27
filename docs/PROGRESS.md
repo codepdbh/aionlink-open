@@ -530,3 +530,94 @@ P2P accesible, autenticación, canales y proyección. La actualización corrige 
 evidencia, no acredita conexión completa. El propietario autorizó commit a main
 al finalizar; se incluyen código propio, pruebas y documentación, preservando
 originales, logs, artefactos y extracción privada fuera de la publicación.
+
+## Revisión 0.8 sin nuevo avance de enlace — 2026-10-27
+
+Se revisaron las capturas aportadas y cuatro TXT nuevos, copiados por ADB a
+private/vehicle-tests-2026-10-27/. Procedencia, hashes y cronología:
+protocol-research/VEHICLE_DIAGNOSTICS_2026-10-27.md.
+
+79 eventos únicos tras deduplicar exportaciones: seis bloqueos normales por
+identidad P2P oculta; una consulta READ, MTU 512, sin respuesta registrada,
+cancelada por Activity en segundo plano a los 12,09 s. El snapshot anterior al
+selector conserva READING_SERVER, por lo que la corrección de captura funciona.
+No hay escritura de PIN confirmada, red o sesión. AOA=0 en todos los snapshots.
+
+El botón gris es una condición local de nuestra implementación; no prueba rechazo
+del código por el AION. Mostrar el campo en 0.8 no resolvió el requisito y las
+pruebas de interfaz no eran pruebas de interoperabilidad. No se generó otra APK
+cosmética ni se pidió repetir el mismo intento como si fuera a conectar.
+
+Sólo documentación; no cambios de código ni pruebas necesarias. Herramientas:
+ADB 37.0.0 existente, Python hashlib para SHA-256 y comparación local de eventos.
+No se accedió al valor de la clave enmascarada, se iniciaron conexiones, se cambió
+el vehículo ni se publicó material privado. Identidad P2P legítima, autenticación,
+canales y proyección siguen pendientes.
+
+## 0.9 — ClientInfo consentido y modalidades de red observadas — 2026-10-27
+
+Solicitud: investigar y mejorar una vía funcional para la siguiente prueba.
+Investigación y límites completos: protocol-research/INTEROPERABILITY_EXPERIMENT_09.md.
+
+**Corrección de interpretación:** la API oculta la dirección local, pero exigir
+una dirección no anonimizada antes de todo envío era una política de nuestro
+cliente, no un requisito del receptor demostrado por los logs. Samsung incorpora
+el dato local sin esa validación; Xiaomi M/C valida no vacío. No se afirma que el
+AION acepte el valor anonimizado: se prepara un experimento explícito para saberlo.
+
+Implementación propia:
+
+- PlatformP2pAddress conserva exactamente device.deviceAddress de la API pública.
+  Clasifica AVAILABLE, ANDROID_ANONYMIZED o UNAVAILABLE; no crea un valor sustituto
+  para null/vacío/inválido. El valor no se guarda ni exporta. El retorno anonimizado
+  sólo puede entrar en ClientInfo con consentimiento por intento; no se presenta
+  como dirección real ni permite usar un endpoint remoto anonimizado.
+- El diálogo ofrece casilla sin preselección y confirmación separada. Con código
+  válido y consentimiento puede intentarse la escritura del esquema ya observado.
+  No se añaden UUID, campos o identidades OEM. El modo del diagnóstico diferencia
+  este experimento de normal/READ y confirma la escritura sólo por callback GATT.
+- Se aceptan respuestas 1001/P2P y 1002/AP observadas en Samsung ble/e y S4/n.
+  El modo AP usa WifiNetworkSpecifier exacto SSID/BSSID, permiso normal
+  CHANGE_NETWORK_STATE, callback y timeout. Sin Internet, bindProcess global,
+  red persistente o sockets. La ventana Android tiene espera acotada de 45 s y
+  limpieza en fondo a 50 s sin retorno. No modifica modo preferido del mensaje
+  ClientInfo ni inventa que el receptor eligió AP: sigue su type recibido.
+- Exportación aplazada mientras la operación está pendiente; Detener sigue
+  disponible. Evita el cierre por selector visto en el intento anterior.
+- Conteo de respuesta incluso si el parser la rechaza, con categorías seguras
+  SIZE/UTF8/JSON/MODE/REQUIRED_FIELDS/SSID/PSK/MAC/FREQUENCY/PORT. Sin valores ni
+  atribuir una respuesta inválida a rechazo de autenticación.
+
+Investigación adicional: las páginas públicas ICCOA describen integración SDK;
+no aportaron un SDK telefónico abierto utilizable aquí. MiAuto es receptor y
+depende de SDK precompilado; no se incorpora ni instala en el coche. El AOA sigue
+sin accesorio observado y no se fuerza USB. La autenticación normal independiente
+se localiza en CarAuthClient/ClientKeyNegotiator con claves propias y algoritmos
+estándar; su implementación/verificación, canales y medios siguen pendientes.
+No se ejecutaron APK originales ni se copiaron bibliotecas, credenciales o fuentes.
+
+Validación final: 6 Python, 51 JVM (7 core, 40 protocolo, 4 Bluetooth), 9 Android
+en el S25: **66 correctas**. Las instrumentadas son 6 UI sin envío remoto, 2 de
+construcción de solicitud AP sin enviarla y 1 consulta pública del propio teléfono.
+Esta última confirmó LOCAL_P2P_METADATA_KIND=ANDROID_ANONYMIZED, sin omisiones,
+sin leer una dirección oculta ni iniciar descubrimiento/grupo/red con otro equipo.
+Registro privado private/ui-tests-0.9-final.txt: OK (9 tests), 7,963 s.
+
+assembleDebug y lintDebug correctos, 0 errores/11 advertencias. Logs privados:
+artifacts/reports/android-build-0.9-final.log y android-ui-build-0.9-final.log.
+Toolchain conservado: Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, JBR 21, SDK 35,
+Python 3.14.2, ADB 37.0.0 y librerías de test corregidas en 0.8. Incidencia menor:
+un parche de documentación no coincidió con su contexto y se reaplicó sin cambios
+de código. Avisos CRLF/LF y Conscrypt ya conocidos, sin fallo de firma/build.
+
+APK final 0.9.0-research, versionCode 9, 24 751 739 bytes; SHA-256
+`6e5204838b1147dab11fde6b2f81ec94a99d46d41f8fd278c962f44e17eb1213`.
+Se verificó firma y presencia de los modelos nuevos en DEX propio. Instalación
+final Success, paquete de pruebas retirado, MainActivity COLD/Status ok en 356 ms.
+XML fresco private/ui-0.9.xml: 29 nodos propios y versión 0.9 visible. Cero
+FATAL EXCEPTION en buffer crash del UID propio. No hubo prueba con el AION.
+
+La próxima prueba mide escritura confirmada, ServerInfo válido y modalidad/red
+obtenida. No se promete autenticación ni proyección: el receptor puede rechazar
+el experimento. Se mantiene la autorización previa de commit a main; publicación
+limitada a código propio, pruebas y documentos, nunca datos/artefactos privados.
