@@ -172,3 +172,8 @@ Detalles y limitaciones en protocol-research/AUTH_CRYPTO_OFFLINE.md.
 Corrección 2026-10-28: los vectores anteriores de HMAC incorporaban los nonce
 erróneamente en el mensaje. Se recalcularon con Python tras contrastar Samsung y
 Xiaomi; 6 Python, 61 JVM y 14 instrumentadas correctas. Es código offline.
+
+Codec AUTH de laboratorio: 6 Python y 66 JVM correctas, incluidos cinco tests
+de codec con fixture sintética, validación independiente por protobuf-java y
+socket loopback con servidor de prueba. Build y lint correctos. No hay integración
+Android ni autenticación entre extremos en esta prueba, ni prueba de vehículo.

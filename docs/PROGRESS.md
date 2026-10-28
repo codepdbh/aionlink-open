@@ -792,3 +792,31 @@ Instalada por ADB; paquete de tests retirado, MainActivity COLD/Status ok en
 415 ms, cero FATAL del UID propio. No se inició conexión con el coche ni se
 ejecutaron APK originales, copiaron fuentes/nativos o extrajeron secretos.
 Queda explícitamente incompleto el objetivo de sesión/proyección funcional.
+
+## Codec AUTH de laboratorio — 2026-10-28
+
+Se contrastaron campos AuthRequest/AuthResponse de Samsung 3.1.04.10 y Xiaomi
+4.0.14 con cabecera UCar observada. ExperimentalAuthWire implementa encoder de
+solicitud y parser limitado de respuesta, con CRC, secuencia, origen, categoría,
+tipos y controles de longitud. Datos propios sintéticos; no se copiaron fuentes,
+credenciales o librerías de fabricantes. El lector protobuf-java 3.25.5 se usa
+sólo en tests para contrastar los tags/valores. Prueba de loopback usa servidor
+local sintético y un puerto aleatorio; no verifica autenticación criptográfica
+entre extremos ni es una captura del coche. Más detalles en
+protocol-research/AUTH_WIRE_LAB.md.
+
+Se ejecutaron 6 Python y 66 JVM (9 core, 53 protocolo, 4 Bluetooth), 72 correctas.
+Build Android y lint correctos, 0 errores/11 advertencias. Logs privados en
+artifacts/reports/android-auth-wire-verified-final.log; Gradle 8.13, AGP 8.9.1,
+Kotlin 2.1.20, JBR 21, SDK/build-tools 35, Python 3.14.2, ADB 37.0.0.
+La consulta de módulo Python google.protobuf falló (no instalado); se contrastó
+en cambio con protobuf-java en tests de Gradle. Builds repetidos tras añadir
+validación de enteros/tipos y una prueba independiente; no fueron fallos del
+vehículo. APK local 24 653 383 bytes, SHA-256
+`25ec95dd1933112432066eb436381829a568febd02c34e320dd7896d9eb664a3`.
+
+No se instaló la APK porque el codec sigue desconectado de la app; el S25 conserva
+0.11. No se inició comunicación con el AION y no corresponde pedir otra prueba
+física por este cambio. Falta integrar la negociación y verificar criptografía,
+confirmación, transporte, control y medios: objetivo funcional incompleto.
+Commit a main previamente autorizado, sólo código y documentación propios.
