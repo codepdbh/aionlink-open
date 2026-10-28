@@ -672,3 +672,22 @@ y verificadas con diff antes del build final. Consultar un log aún no creado
 produjo error de lectura sin impacto. Builds repetidos sólo tras cambios reales.
 Avisos CRLF/LF conocidos; git diff --check sin errores. Autorización previa de
 commit a main conservada; publicación sólo de código propio y documentación.
+
+## Prueba física 0.10: red P2P confirmada — 2026-10-28
+
+Dos exportaciones nuevas (14)/(15), mismo proceso e historial solapado,
+conservadas en privado. Hashes y cronología en
+protocol-research/VEHICLE_DIAGNOSTICS_010_2026-10-28.md.
+Cinco preparaciones, cuatro escrituras confirmadas, tres ServerInfo y tres redes
+P2P CONNECTED verificadas por grupo/rol/SSID/MAC. Primer enlace duró 18,851177 s
+antes de pérdida de grupo, sin cancelación local previa; causa remota desconocida.
+Otros dos duraron 1,894929 y 5,145336 s, cancelados por nuestra política de
+segundo plano. Otra espera BLE cancelada y un formulario cerrado sin envío.
+Todos los ServerInfo recibidos clasifican puerto OUT_OF_RANGE. No revela el
+valor exacto ni habilita endpoint/auth. Progreso 40% reportado por propietario
+no equivale a autenticación; red es el nuevo hito físico confirmado.
+Autenticación, medios y proyección siguen pendientes. Herramientas ADB 37.0.0,
+Get-FileHash SHA-256 y revisión estática del código propio; sin incidencias.
+Sólo documentación, no cambios de APK ni pruebas de código necesarias, ni
+conexiones al coche iniciadas desde el ordenador. Commit a main previamente
+autorizado, conservando originales y exportaciones fuera de Git.
