@@ -163,3 +163,8 @@ La prueba de protocolo verifica la clasificación del puerto numérico sin
 conservar su valor. No simulan la Activity ni el temporizador de 50 s: la
 conservación efectiva en el AION requiere prueba física del propietario.
 Build y lint correctos; 0 errores y 11 advertencias.
+
+Para las primitivas AUTH offline: 6 Python, 61 JVM y 14 instrumentadas,
+81 correctas. Vectores HMAC independientes, firmas y puntos sintéticos y
+compatibilidad JCA en S25; no se prueba un handshake ni un receptor real.
+Detalles y limitaciones en protocol-research/AUTH_CRYPTO_OFFLINE.md.

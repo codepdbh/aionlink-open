@@ -727,3 +727,32 @@ se iniciaron conexiones desde el ordenador ni pruebas con el AION. Incidencia:
 primer apply_patch rechazó dos operaciones sobre el mismo archivo; se aplicó
 de nuevo agrupando cambios. Sin modificación parcial. Advertencias CRLF/LF
 existentes; commit a main autorizado, sin publicar diagnósticos ni APK originales.
+
+## Primitivas AUTH offline sobre 0.11 — 2026-10-28
+
+Se investigó Smali de ClientKeyNegotiator 3.1.04.10 para resolver la rama
+normal que JADX no reconstruyó. El HMAC de respuesta combina ambas claves de
+autenticación y ambos nonce; la firma del acuerdo combina ambas claves de
+acuerdo y ambos nonce. Véanse fuentes y orden en
+protocol-research/AUTH_CRYPTO_OFFLINE.md. Código propio añade verificación de
+puntos P-256, HMAC inicial, prueba HMAC del peer y firma ECDSA, con comparación
+constante y sin persistencia de PIN. Todavía son componentes aislados: no se
+conectaron a la app ni envían mensajes. No hay autenticación, confirmación ni
+proyección completas. No se extrajeron claves o credenciales ni copiaron fuentes.
+
+Validación: 6 Python, 61 JVM (9 core, 48 protocolo, 4 Bluetooth) y 14 Android,
+81 correctas. Vectores HMAC sintéticos calculados por separado con Python 3.14.2;
+pruebas de claves, firmas y alteración, y prueba JCA del S25 con datos sintéticos.
+Instrumentación OK (14 tests), 5,590 s; metadata ANDROID_ANONYMIZED. Build y lint
+correctos, 0 errores/11 advertencias; apksigner verify correcto. Logs locales:
+artifacts/reports/android-auth-primitives-final.log, android-auth-primitives-ui.log
+y private/ui-tests-auth-primitives.txt. Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20,
+JBR 21, SDK/build-tools 35, ADB 37.0.0. Sin incidencias relevantes.
+
+Recompilación instalada en S25 conserva versionCode 11/0.11.0-research porque
+no cambia el comportamiento de conexión. Nuevo binario 24 643 923 bytes,
+SHA-256 `f9116eb1f265ed9b9eea62c5522399a9a86a6965f0456734cacfada7c37b36f6`.
+ADB install Success; paquete de tests retirado; MainActivity COLD/Status ok
+343 ms; cero FATAL de UID propio. No se hicieron conexiones al vehículo y no se
+solicita repetir la misma prueba por estos componentes offline. Commit a main
+autorizado, exclusivamente implementación original, tests y documentación.
