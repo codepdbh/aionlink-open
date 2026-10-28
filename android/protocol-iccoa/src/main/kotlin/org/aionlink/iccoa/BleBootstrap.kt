@@ -33,11 +33,36 @@ enum class NetworkMode(val wireValue: Int) { P2P(1001), ACCESS_POINT(1002) }
 enum class ServerInfoFault { SIZE, UTF8, JSON, MODE, REQUIRED_FIELDS, SSID, PSK, MAC, FREQUENCY, PORT }
 class ServerInfoException(val fault: ServerInfoFault) : IllegalArgumentException("ServerInfo no válido: $fault; contenido omitido")
 
+enum class ServerPortStatus { VALID, MISSING, EMPTY, NON_INTEGER, OUT_OF_RANGE, UNSUPPORTED_TYPE }
+
+/** Classification only; never retains or reports an unusable peer value. */
+data class ServerPort private constructor(val value: Int?, val status: ServerPortStatus) {
+    override fun toString() = "ServerPort(status=$status)"
+    companion object {
+        fun inspect(raw: Any?): ServerPort {
+            if (raw == null || raw == JSONObject.NULL) return ServerPort(null, ServerPortStatus.MISSING)
+            if (raw is String && raw.isEmpty()) return ServerPort(null, ServerPortStatus.EMPTY)
+            if (raw !is String && raw !is Int && raw !is Long)
+                return ServerPort(null, ServerPortStatus.UNSUPPORTED_TYPE)
+            val text = raw.toString()
+            if (text.length > 20 || !text.matches(Regex("[+-]?[0-9]+")))
+                return ServerPort(null, ServerPortStatus.NON_INTEGER)
+            val number = text.toLongOrNull()
+            if (number == null || number !in 1L..65535L) return ServerPort(null, ServerPortStatus.OUT_OF_RANGE)
+            return ServerPort(number.toInt(), ServerPortStatus.VALID)
+        }
+    }
+}
+
 class ServerInfo private constructor(val ssid: String, val passphrase: String, val mac: String,
-                                    val frequency: Int, val port: Int, val mode: NetworkMode) {
+                                    val frequency: Int, val port: Int?, val mode: NetworkMode, val portStatus: ServerPortStatus) {
     override fun toString() = "ServerInfo(redacted)"
     companion object {
-        fun parse(bytes: ByteArray): ServerInfo {
+        /** Strict endpoint parser for consumers that require a usable TCP/UDP port. */
+        fun parse(bytes: ByteArray): ServerInfo = parseInternal(bytes, requirePort = true)
+        /** Network formation consumes SSID/PSK/MAC/frequency, not a session endpoint. */
+        fun parseForNetwork(bytes: ByteArray): ServerInfo = parseInternal(bytes, requirePort = false)
+        private fun parseInternal(bytes: ByteArray, requirePort: Boolean): ServerInfo {
             checkField(bytes.isNotEmpty() && bytes.size <= 4096, ServerInfoFault.SIZE)
             val text = try {
                 Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -47,24 +72,19 @@ class ServerInfo private constructor(val ssid: String, val passphrase: String, v
             try {
                 val mode = NetworkMode.entries.firstOrNull { it.wireValue == json.optInt("type", 1001) }
                     ?: throw ServerInfoException(ServerInfoFault.MODE)
-                checkField(listOf("ssid", "psk", "mac", "freq", "port").all { json.has(it) && !json.isNull(it) }, ServerInfoFault.REQUIRED_FIELDS)
+                checkField(listOf("ssid", "psk", "mac", "freq").all { json.has(it) && !json.isNull(it) }, ServerInfoFault.REQUIRED_FIELDS)
                 val ssid = json.get("ssid") as? String ?: throw ServerInfoException(ServerInfoFault.SSID)
                 val psk = json.get("psk") as? String ?: throw ServerInfoException(ServerInfoFault.PSK)
                 val mac = json.get("mac") as? String ?: throw ServerInfoException(ServerInfoFault.MAC)
                 val freq = try { json.getInt("freq") } catch (_: Exception) { throw ServerInfoException(ServerInfoFault.FREQUENCY) }
-                val rawPort = json.get("port")
-                val port = try { when (rawPort) {
-                    is String -> rawPort.toInt()
-                    is Int, is Long -> rawPort.toString().toInt()
-                    else -> throw IllegalArgumentException()
-                } } catch (_: Exception) { throw ServerInfoException(ServerInfoFault.PORT) }
+                val endpoint = ServerPort.inspect(json.opt("port"))
+                if (requirePort) checkField(endpoint.status == ServerPortStatus.VALID, ServerInfoFault.PORT)
                 checkField(ssid.toByteArray(Charsets.UTF_8).size in 1..32 && '\u0000' !in ssid, ServerInfoFault.SSID)
                 if (mode == NetworkMode.P2P) checkField(ssid.startsWith("DIRECT-") && ssid.length >= 9, ServerInfoFault.SSID)
                 checkField(psk.length in 8..63 && psk.all { it.code in 32..126 }, ServerInfoFault.PSK)
                 checkField(validUnicastMac(mac), ServerInfoFault.MAC)
                 checkField(freq in 2412..2484 || freq in 5000..5900 || mode == NetworkMode.ACCESS_POINT && freq == 0, ServerInfoFault.FREQUENCY)
-                checkField(port in 1..65535, ServerInfoFault.PORT)
-                return ServerInfo(ssid, psk, mac, freq, port, mode)
+                return ServerInfo(ssid, psk, mac, freq, endpoint.value, mode, endpoint.status)
             } catch (error: ServerInfoException) {
                 throw error
             } catch (_: Exception) {

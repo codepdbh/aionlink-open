@@ -636,3 +636,39 @@ Sólo documentación; sin pruebas de código, instalación o conexiones al coche
 Incidencias de herramientas: primera lectura usó ruta de paquete incorrecta;
 se localizó con rg --files y se corrigió. Búsqueda PowerShell demasiado amplia
 por comillas se sustituyó por lectura dirigida; sin impacto en los originales.
+
+## 0.10 — red independiente del puerto de sesión — 2026-10-28
+
+Evidencia, corrección de interpretación y próximo ensayo:
+protocol-research/NETWORK_BOOTSTRAP_010.md. Samsung lee String pero también hace
+Integer.parseInt antes del observer; no hay evidencia de listas ni del valor PORT
+real del AION. Nuestra formación de red no utiliza ese endpoint. Se separó
+parseForNetwork de parse estricto: parámetros de red siguen validados; puerto
+inutilizable queda null con categoría segura, sin sustitución ni sockets.
+BLE normal/READ registran modo y categoría. La espera acotada de ventana Android
+cubre P2P además de AP; errores P2P distinguen BUSY/P2P_UNSUPPORTED/ERROR.
+Autenticación y proyección siguen sin implementar/verificar. Ninguna prueba
+remota al coche se inició desde el ordenador; originales y material privado
+permanecen excluidos de Git.
+
+Validación: 6 Python, 55 JVM (7 core, 44 protocolo, 4 Bluetooth) y 11 Android,
+72 correctas. Instrumentación real: OK (11 tests), 7,737 s, metadata local
+ANDROID_ANONYMIZED. Fixtures de red no solicitan conexiones. Build y lint
+correctos, 0 errores/11 advertencias. Logs privados android-build-0.10-final.log,
+android-ui-build-0.10-final.log y private/ui-tests-0.10-final.txt.
+Toolchain conservado: Python 3.14.2, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20,
+JBR 21, SDK/build-tools 35, ADB 37.0.0. Firma apksigner verificada.
+
+APK 0.10.0-research, versionCode 10, 24 766 231 bytes, SHA-256
+`e6ca6002f86a8de9ae1ef01e8ad2ec38e37430237e6ab3d82540563f3ee7847d`.
+ADB instalación Success, versión instalada comprobada; sólo paquete de pruebas
+retirado. MainActivity COLD/Status ok en 346 ms. La captura UI posterior no
+contiene nodos propios: no se declara verificación visual del arranque final
+ni se manipuló la pantalla ajena. Las 11 pruebas instrumentadas sí pasaron.
+
+Incidencias: una edición Python por pipe PowerShell convirtió un acento en ?
+y dos sustituciones con acentos no coincidieron; corregidas mediante apply_patch
+y verificadas con diff antes del build final. Consultar un log aún no creado
+produjo error de lectura sin impacto. Builds repetidos sólo tras cambios reales.
+Avisos CRLF/LF conocidos; git diff --check sin errores. Autorización previa de
+commit a main conservada; publicación sólo de código propio y documentación.

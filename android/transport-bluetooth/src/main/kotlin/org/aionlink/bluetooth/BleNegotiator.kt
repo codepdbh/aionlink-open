@@ -149,7 +149,7 @@ class BleNegotiator(context: Context) {
                         if (ticket != generation || active !== gatt || mutable.value.stage != BootstrapStage.READING_SERVER) return@post
                         if (status != BluetoothGatt.GATT_SUCCESS) { fail("Lectura ServerInfo rechazada ($status); no se intenta eludirla"); return@post }
                         mutable.value = mutable.value.copy(bytesReceived = copy.size)
-                        val parsed = try { ServerInfo.parse(copy) } catch (error: IllegalArgumentException) {
+                        val parsed = try { ServerInfo.parseForNetwork(copy) } catch (error: IllegalArgumentException) {
                             val reason = (error as? ServerInfoException)?.fault?.name ?: "UNKNOWN"
                             fail("ServerInfo no v\u00e1lido en READ ($reason); no se envi\u00f3 ClientInfo ni PIN. Contenido omitido")
                             return@post
@@ -172,7 +172,7 @@ class BleNegotiator(context: Context) {
                     try {
                         if (generation != ticket || active !== gatt || mutable.value.stage !in setOf(BootstrapStage.WRITING, BootstrapStage.WAITING_SERVER)) return@post
                         mutable.value = mutable.value.copy(bytesReceived = copy.size)
-                        val parsed = try { ServerInfo.parse(copy) } catch (error: IllegalArgumentException) {
+                        val parsed = try { ServerInfo.parseForNetwork(copy) } catch (error: IllegalArgumentException) {
                             val reason = (error as? ServerInfoException)?.fault?.name ?: "UNKNOWN"
                             fail("ServerInfo rechazado por nuestro parser ($reason); contenido omitido"); return@post
                         }
@@ -211,7 +211,7 @@ class BleNegotiator(context: Context) {
     private fun accept(info: ServerInfo) {
         val next = output
         cleanup()
-        update(BootstrapStage.SERVER_RECEIVED, "ServerInfo recibido; BLE cerrado. Autenticación ICCOA pendiente")
+        update(BootstrapStage.SERVER_RECEIVED, "ServerInfo de red recibido; modo=${info.mode}; puerto=${info.portStatus}. BLE cerrado; autenticación ICCOA pendiente")
         next?.invoke(info)
     }
     private fun update(stage: BootstrapStage, message: String) { mutable.value = mutable.value.copy(stage = stage, message = message) }

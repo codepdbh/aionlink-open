@@ -174,7 +174,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             event("Identidad local=$disclosure; consentimiento experimental=$consentToAnonymized; sin valor de direcci\u00f3n")
             event("PIN entregado al intercambio normal; valor omitido, env\u00edo todav\u00eda sin confirmar")
             bootstrap.start(peer, hello) { info ->
-                event("ServerInfo recibido tras ClientInfo; solicitando Wi-Fi Direct")
+                mutableConnectionNotice.value = "Respuesta BLE recibida; red ${info.mode}; puerto=${info.portStatus}; autenticación pendiente"
+                event("ServerInfo recibido tras ClientInfo; solicitando red ${info.mode}; puerto=${info.portStatus}")
                 network.connect(info)
             }
         } catch (_: IllegalArgumentException) {
@@ -186,14 +187,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     fun background() {
         if (network.systemWifiHandoff) {
             discovery.stop(); gatt.cancel(); usb.stop()
-            event("Ventana de red AP Android en curso; se conserva la solicitud acotada, sin sesi\u00f3n ICCOA")
+            event("Ventana de red Android en curso; se conserva la solicitud acotada, sin sesi\u00f3n ICCOA")
             prepareHandler.removeCallbacks(backgroundExpiry)
             prepareHandler.postDelayed(backgroundExpiry, 50000)
         } else stopAll("Activity en segundo plano (puede incluir selector de archivos o cambio de app)")
     }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.9.0-research")
+        appendLine("AionLink Open 0.10.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -341,7 +342,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.9.0")
+            Text("Cliente USB + Bluetooth experimental • v0.10.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)

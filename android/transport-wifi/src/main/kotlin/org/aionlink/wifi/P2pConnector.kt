@@ -36,8 +36,8 @@ class P2pConnector(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private var apCallback: ConnectivityManager.NetworkCallback? = null
     private var apNetwork: Network? = null
-    val systemWifiHandoff get() = mutable.value.mode == NetworkMode.ACCESS_POINT &&
-        mutable.value.stage in setOf(NetworkStage.CONNECTING, NetworkStage.CONNECTED)
+    val systemWifiHandoff get() = mutable.value.stage == NetworkStage.CONNECTING ||
+        mutable.value.mode == NetworkMode.ACCESS_POINT && mutable.value.stage == NetworkStage.CONNECTED
     private val handler = Handler(Looper.getMainLooper())
     private var channel: WifiP2pManager.Channel? = null
     private var generation = 0
@@ -55,7 +55,16 @@ class P2pConnector(context: Context) {
     private fun publish(stage: NetworkStage, message: String) { mutable.value = P2pStatus(stage, message, mutable.value.mode) }
     private fun action(ticket: Int, success: () -> Unit) = object : WifiP2pManager.ActionListener {
         override fun onSuccess() { if (ticket == generation) success() }
-        override fun onFailure(reason: Int) { if (ticket == generation) fail("Wi-Fi Direct rechazó la operación ($reason)") }
+        override fun onFailure(reason: Int) {
+            if (ticket != generation) return
+            val detail = when (reason) {
+                WifiP2pManager.BUSY -> "BUSY; Android está ocupado, espera antes de reintentar"
+                WifiP2pManager.P2P_UNSUPPORTED -> "P2P_UNSUPPORTED; función no disponible"
+                WifiP2pManager.ERROR -> "ERROR; fallo interno de Android"
+                else -> "código $reason"
+            }
+            fail("Wi-Fi Direct no inició la operación: $detail")
+        }
     }
     fun prepare(onReady: (LocalP2p) -> Unit) {
         stop()

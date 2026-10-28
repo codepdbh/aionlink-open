@@ -137,3 +137,17 @@ Las 9 pruebas Android se ejecutan sin filtro de clase con am instrument:
 En el S25 se obtuvo esa clasificación y OK (9 tests), sin omisiones. No se imprimió
 la dirección ni parámetros de red. Ninguno de estos tests prueba que el receptor
 AION acepte ClientInfo anonimizado. Véase INTEROPERABILITY_EXPERIMENT_09.md.
+
+## Pruebas 0.10: puerto independiente de formación de red
+
+Se añaden cuatro pruebas JVM en NetworkPortIndependenceTest: formatos no
+utilizables conservados como categoría/null, puerto ausente, límites válidos
+y validación de parámetros de red que sigue rechazando datos inválidos.
+Dos pruebas instrumentadas NetworkBootstrapParsingTest comprueban lo mismo
+con JSONObject de Android real. Son fixtures sintéticos; no conectan radios.
+Se conservan las pruebas de consentimiento, descarte, red AP y metadata local.
+Véase protocol-research/NETWORK_BOOTSTRAP_010.md para evidencia y límites.
+
+Resultado 0.10: 6 Python + 55 JVM + 11 instrumentadas = 72 correctas.
+Instrumentación S25: OK (11 tests), 7,737 s, sin omisión de metadata local
+(ANDROID_ANONYMIZED). Build/lint correctos: 0 errores, 11 advertencias.

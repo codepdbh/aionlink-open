@@ -52,7 +52,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Aplicación Android | Kotlin, Jetpack Compose, Material 3 y ViewModel | Compilada e instalada |
 | Descubrimiento | BLE filtrado ICCOA de 15 segundos, alternativa Classic/BLE y candidatos destacados | Implementado en 0.5; identidad del receptor por verificar |
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
-| Intercambio BLE + red | ClientInfo con dato real o experimento consentido con retorno anonimizado de Android; P2P/AP según respuesta | 0.9: envío y red aún por validar con AION; autenticación pendiente |
+| Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Escritura/respuesta verificadas en 0.9; 0.10 separa red de PORT; red y autenticación pendientes |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
