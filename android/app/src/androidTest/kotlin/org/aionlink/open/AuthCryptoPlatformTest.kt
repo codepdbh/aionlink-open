@@ -21,7 +21,7 @@ class AuthCryptoPlatformTest {
         val encoded = coordinate(key.w.affineX) + coordinate(key.w.affineY)
         assertEquals(key.w, ExperimentalAuthCrypto.decodePublicPoint(encoded).w)
         val keyFixture = ByteArray(64) { it.toByte() }; val nonce = ByteArray(32) { it.toByte() }
-        val expected = "f1d5154dd1f2ebbeecb8bc129cad9849c834caa0a118d54d6e18a6825ecc38e0"
+        val expected = "a7a055f6fd2b94394336fa5519a93991ff584907b8090d9267c1c6ff6c5d458e"
             .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         assertArrayEquals(expected, ExperimentalAuthCrypto.pinProof(keyFixture, nonce, "123456".toByteArray()))
     }

@@ -199,6 +199,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Arquitectura](docs/architecture/SYSTEM_ARCHITECTURE.md) | Módulos, estados y límites |
 | [Investigación ICCOA](docs/protocol-research/ICCOA_RESEARCH.md) | Evidencias estáticas y modelo provisional |
 | [Canal de autenticación](docs/protocol-research/AUTH_CHANNEL_011.md) | Evidencia estática, limitaciones y siguientes pasos |
+| [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |
 | [Comparación de rutas](docs/protocol-research/PROTOCOL_COMPARISON.md) | Samsung, Xiaomi, OPPO y CarLife |

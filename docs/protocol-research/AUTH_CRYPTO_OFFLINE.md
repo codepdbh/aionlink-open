@@ -7,9 +7,9 @@ Fuente estática local: Samsung Auto 3.1.04.10, SHA-256
 No se copió código propietario ni se extrajeron claves, PIN o credenciales.
 
 La construcción inicial observada autentica la clave pública del cliente usando
-HMAC-SHA-256 con una clave derivada por SHA-256 de nonce y PIN; el mensaje
-abarca clave pública y nonce. En la rama normal de respuesta, el Smali combina
-ambas claves de autenticación y ambos nonce para comprobar el HMAC del peer.
+HMAC-SHA-256 con una clave derivada por SHA-256 de nonce y PIN; el mensaje HMAC
+es la clave pública. En la rama normal de respuesta, el mensaje HMAC contiene
+ambas claves de autenticación; la clave HMAC se deriva de ambos nonce y el PIN.
 Después comprueba la firma de la clave de acuerdo del peer junto a la clave
 de acuerdo local y los dos nonce. Sólo después intenta ECDH y guardar el peer.
 El orden exacto de concatenación se expresa en el código independiente y en

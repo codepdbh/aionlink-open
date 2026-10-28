@@ -62,7 +62,6 @@ object ExperimentalAuthCrypto {
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(SecretKeySpec(derivedKey, "HmacSHA256"))
             points.forEach(mac::update)
-            nonces.forEach(mac::update)
             return mac.doFinal()
         } finally { derivedKey.fill(0) }
     }

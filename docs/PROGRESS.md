@@ -756,3 +756,39 @@ ADB install Success; paquete de tests retirado; MainActivity COLD/Status ok
 343 ms; cero FATAL de UID propio. No se hicieron conexiones al vehículo y no se
 solicita repetir la misma prueba por estos componentes offline. Commit a main
 autorizado, exclusivamente implementación original, tests y documentación.
+
+## Comparación Samsung/Xiaomi/CarLife y corrección HMAC — 2026-10-28
+
+Investigación cruzada, hashes, rutas y prioridades en
+protocol-research/CONNECTION_RESEARCH_2026-10-28.md. Samsung 3.1.04.10 y
+Xiaomi 4.0.14 comparten familia UCar, canal AUTH 57209 y construcción normal
+observada; no prueba recepción del AION. CarLife receptor usa otra familia.
+Xiaomi produce HKDF-SHA256 y Samsung usa AES-GCM en SecurityManager; siguen
+pendientes derivación y confirmación interoperables, red/sockets, medios y control.
+Se consultaron páginas públicas ICCOA, Baidu y documentación oficial Android;
+MiAuto es receptor con SDK precompilado ausente del repo, no cliente S25.
+
+Corrección de un error en el trabajo offline anterior: KeyNegotiator de ambas
+APK usa nonce para derivar la clave HMAC, no los añade al mensaje HMAC inicial;
+en respuesta usa ambos nonce en la derivación y ambas claves en el mensaje.
+El código previo y sus vectores probaban una fórmula errónea, aunque consistente
+consigo misma. Se corrigió y se recalcularon vectores independientemente con
+Python hashlib/hmac. Nunca se enviaron esas pruebas al vehículo. La firma ECDSA
+estudiada sí incluye ambas claves de acuerdo y ambos nonce. El informe original
+AUTH_CRYPTO_OFFLINE.md está corregido; los registros anteriores se preservan.
+
+Validación: 6 Python, 61 JVM (9 core, 48 protocolo, 4 Bluetooth), 14 instrumentadas:
+81 correctas. S25 OK (14 tests), 5,658 s; ANDROID_ANONYMIZED. Build/lint correctos,
+0 errores/11 advertencias; apksigner verify correcto. Python 3.14.2, Gradle 8.13,
+AGP 8.9.1, Kotlin 2.1.20, JBR 21, SDK/build-tools 35 y ADB 37.0.0. Logs privados:
+artifacts/reports/android-auth-hmac-correction.log, android-auth-hmac-correction-ui.log
+y private/ui-tests-auth-hmac-correction.txt. El primer apply_patch falló por un
+contexto de documentación que no coincidía; se reaplicó sin modificación parcial.
+
+APK recompilada de investigación, versión 0.11 sin cambio funcional de conexión:
+24 643 751 bytes, SHA-256
+`f77c956c5b6f4673159a07b62da3cb7e50cb6ef41b11f73b2bc055c2fe4973cd`.
+Instalada por ADB; paquete de tests retirado, MainActivity COLD/Status ok en
+415 ms, cero FATAL del UID propio. No se inició conexión con el coche ni se
+ejecutaron APK originales, copiaron fuentes/nativos o extrajeron secretos.
+Queda explícitamente incompleto el objetivo de sesión/proyección funcional.

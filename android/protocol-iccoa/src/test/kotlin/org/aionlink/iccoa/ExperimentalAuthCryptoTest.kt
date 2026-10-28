@@ -21,7 +21,7 @@ class ExperimentalAuthCryptoTest {
     @Test fun hmacMatchesIndependentlyCalculatedVectorAndRejectsWrongPin() {
         val key = ByteArray(64) { it.toByte() }; val nonce = ByteArray(32) { it.toByte() }
         val pin = "123456".toByteArray()
-        val expected = bytes("f1d5154dd1f2ebbeecb8bc129cad9849c834caa0a118d54d6e18a6825ecc38e0")
+        val expected = bytes("a7a055f6fd2b94394336fa5519a93991ff584907b8090d9267c1c6ff6c5d458e")
         assertArrayEquals(expected, ExperimentalAuthCrypto.pinProof(key, nonce, pin))
         assertTrue(ExperimentalAuthCrypto.verifyPinProof(key, nonce, pin, expected))
         assertFalse(ExperimentalAuthCrypto.verifyPinProof(key, nonce, "123457".toByteArray(), expected))
@@ -51,7 +51,7 @@ class ExperimentalAuthCryptoTest {
     @Test fun peerProofBindsBothPublicKeysAndBothNonces() {
         val peer = ByteArray(64) { it.toByte() }; val local = ByteArray(64) { (63 - it).toByte() }
         val peerNonce = ByteArray(32) { it.toByte() }; val localNonce = ByteArray(32) { (31 - it).toByte() }
-        val expected = bytes("ab8d4111ddd07a4d78dc95602543de4a1402b22f27f53a8c4615a0b25ff84436")
+        val expected = bytes("095a02282fb8703677d169ba35b8e74ff5a2871e0bfff6f0718dfa1fba4779de")
         val pin = "123456".toByteArray()
         assertTrue(ExperimentalAuthCrypto.verifyPeerProof(peer, local, peerNonce, localNonce, pin, expected))
         local[0] = 0

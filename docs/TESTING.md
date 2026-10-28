@@ -168,3 +168,7 @@ Para las primitivas AUTH offline: 6 Python, 61 JVM y 14 instrumentadas,
 81 correctas. Vectores HMAC independientes, firmas y puntos sintéticos y
 compatibilidad JCA en S25; no se prueba un handshake ni un receptor real.
 Detalles y limitaciones en protocol-research/AUTH_CRYPTO_OFFLINE.md.
+
+Corrección 2026-10-28: los vectores anteriores de HMAC incorporaban los nonce
+erróneamente en el mensaje. Se recalcularon con Python tras contrastar Samsung y
+Xiaomi; 6 Python, 61 JVM y 14 instrumentadas correctas. Es código offline.
