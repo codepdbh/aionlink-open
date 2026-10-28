@@ -8,4 +8,5 @@ kotlin { jvmToolchain(21) }
 dependencies {
     implementation(project(":protocol-iccoa"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    testImplementation("junit:junit:4.13.2")
 }

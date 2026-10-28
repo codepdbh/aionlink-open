@@ -177,3 +177,12 @@ Codec AUTH de laboratorio: 6 Python y 66 JVM correctas, incluidos cinco tests
 de codec con fixture sintética, validación independiente por protobuf-java y
 socket loopback con servidor de prueba. Build y lint correctos. No hay integración
 Android ni autenticación entre extremos en esta prueba, ni prueba de vehículo.
+
+## Pruebas 0.12
+
+6 Python, 69 JVM (9 core, 53 protocolo, 4 Bluetooth, 3 Wi-Fi) y 15 Android:
+90 correctas. Los tests Wi-Fi usan loopback con un puerto elegido por el sistema;
+comprueban conexión única sin payload, fallo de vinculación sin conexión y límites.
+El test de diálogo confirma que sólo un clic explícito invoca el callback y no
+usa la red. La prueba pública de metadata local Android se ejecutó sin omisiones.
+No hay prueba con el AION ni prueba de disponibilidad de Network P2P en S25.

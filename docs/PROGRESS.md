@@ -820,3 +820,38 @@ No se instaló la APK porque el codec sigue desconectado de la app; el S25 conse
 física por este cambio. Falta integrar la negociación y verificar criptografía,
 confirmación, transporte, control y medios: objetivo funcional incompleto.
 Commit a main previamente autorizado, sólo código y documentación propios.
+
+## 0.12 — diagnóstico TCP AUTH opcional — 2026-10-28
+
+Solicitud: una APK con mejores logs de la fase posterior a Wi-Fi. Ante evidencia
+estática de canal AUTH 57209 de Samsung/Xiaomi se añade comprobación opcional
+del propietario, sólo tras grupo P2P validado, con diálogo separado. Android
+aporta dirección de propietario e interfaz; se requiere Network que coincida con
+la interfaz y se vincula el socket a esa Network. Si no existe, UNAVAILABLE y
+ninguna conexión. Un intento TCP, plazo 2,5 s, sin leer/escribir payload; se
+cierra al finalizar o perderse el grupo. No se exportan dirección, interfaz,
+PIN ni excepciones. Estados/tiempo se exportan y se impide exportar mientras
+corre. OPEN sólo significa TCP abierto; ningún estado significa sesión ICCOA.
+Puede afectar al receptor y el diálogo lo indica. AP no implementado para esta
+prueba. Diseño y fuentes en protocol-research/AUTH_PROBE_012.md.
+
+Validación: 6 Python, 69 JVM (9 core, 53 protocolo, 4 Bluetooth, 3 Wi-Fi),
+15 Android instrumentadas: 90 correctas. Wifi usa loopback propio para comprobar
+una sola conexión sin bytes y rechazar fallo de bind sin conectarse; diálogo usa
+callbacks sin red. Instrumentación S25 OK (15 tests), 6,225 s, metadata local
+ANDROID_ANONYMIZED. Build y lint correctos, 0 errores/11 advertencias. Se añadió
+el módulo Wi-Fi JVM al script de build. Logs privados: artifacts/reports/
+android-build-0.12-final.log, android-ui-build-0.12-final.log y
+private/ui-tests-0.12-final.txt. JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20,
+SDK/build-tools 35, Python 3.14.2 y ADB 37.0.0; apksigner verify correcto.
+
+APK 0.12.0-research, versionCode 12, 24 831 123 bytes, SHA-256
+`34eb92ee6934da75cab4a605077b63471234247ae3fc7457817124eaea13989e`.
+ADB install Success, versión confirmada; paquete de tests retirado; MainActivity
+COLD/Status ok, 370 ms, sin FATAL en buffer UID propio. No se probó vehículo
+desde ordenador ni se ejecutaron APK originales. En consulta web, la referencia
+ConnectivityManager agotó tiempo; otras páginas API confirmaron Network y P2P.
+Los builds se repitieron tras mover el botón al inicio y añadir prueba UI. No se
+sabe si Android expone la Network P2P al S25; sólo una prueba física lo aclarará.
+Autenticación y medios siguen incompletos. Commit a main ya autorizado; datos
+privados, APK originales y artefactos no se publican.

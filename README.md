@@ -54,7 +54,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
 | Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Red P2P formada tres veces con el AION en 0.10; autenticación pendiente |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
-| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
+| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.12 añade comprobación TCP AUTH opcional y acotada; no autentica |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
 | Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |
@@ -199,6 +199,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Arquitectura](docs/architecture/SYSTEM_ARCHITECTURE.md) | Módulos, estados y límites |
 | [Investigación ICCOA](docs/protocol-research/ICCOA_RESEARCH.md) | Evidencias estáticas y modelo provisional |
 | [Canal de autenticación](docs/protocol-research/AUTH_CHANNEL_011.md) | Evidencia estática, limitaciones y siguientes pasos |
+| [Diagnóstico AUTH 0.12](docs/protocol-research/AUTH_PROBE_012.md) | Prueba TCP opcional, límites y significado |
 | [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |

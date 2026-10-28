@@ -17,11 +17,17 @@ import org.aionlink.iccoa.validUnicastMac
 import org.aionlink.iccoa.PlatformP2pAddress
 import org.aionlink.iccoa.AddressDisclosure
 import org.aionlink.iccoa.NetworkMode
+import java.net.InetAddress
+import java.net.Socket
 
 enum class NetworkStage { IDLE, PREPARING, READY, CONNECTING, CONNECTED, ERROR, CANCELLED }
 data class P2pStatus(val stage: NetworkStage = NetworkStage.IDLE, val message: String = "Red sin preparar", val mode: NetworkMode? = null) {
     val busy get() = stage in setOf(NetworkStage.PREPARING, NetworkStage.CONNECTING)
     val handoffActive get() = stage in setOf(NetworkStage.CONNECTING, NetworkStage.CONNECTED)
+}
+enum class AuthProbeStage { IDLE, RUNNING, FINISHED, UNAVAILABLE, CANCELLED }
+data class AuthProbeStatus(val stage: AuthProbeStage = AuthProbeStage.IDLE, val detail: String = "Sin comprobar", val elapsedMs: Long? = null) {
+    val busy get() = stage == AuthProbeStage.RUNNING
 }
 class LocalP2p(val platformAddress: PlatformP2pAddress, val supports5Ghz: Boolean) {
     val address get() = platformAddress.realValueOrNull()
@@ -47,6 +53,12 @@ class P2pConnector(context: Context) {
     private var target: Target? = null
     private var submitted = false
     private var ownedGroup = false
+    private class VerifiedEndpoint(val address: InetAddress, val interfaceName: String)
+    private var verifiedEndpoint: VerifiedEndpoint? = null
+    private var probeSocket: Socket? = null
+    private var probeGeneration = 0
+    private val mutableProbe = MutableStateFlow(AuthProbeStatus())
+    val authProbe = mutableProbe.asStateFlow()
     private val mutable = MutableStateFlow(P2pStatus())
     val state = mutable.asStateFlow()
     fun requiredPermissions() = if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -68,6 +80,7 @@ class P2pConnector(context: Context) {
     }
     fun prepare(onReady: (LocalP2p) -> Unit) {
         stop()
+        mutableProbe.value = AuthProbeStatus()
         if (!hasPermissions()) { fail("Falta permiso de dispositivos Wi-Fi cercanos"); return }
         if (wifi?.isWifiEnabled != true || manager == null) { fail("Activa Wi-Fi para preparar el enlace"); return }
         val ticket = generation
@@ -176,6 +189,11 @@ class P2pConnector(context: Context) {
                             return@requestGroupInfo
                         }
                         ownedGroup = true
+                        val ownerAddress = link.groupOwnerAddress
+                        val interfaceName = group.`interface`
+                        verifiedEndpoint = if (ownerAddress != null && !ownerAddress.isAnyLocalAddress &&
+                            !ownerAddress.isLoopbackAddress && !ownerAddress.isMulticastAddress && !interfaceName.isNullOrBlank())
+                            VerifiedEndpoint(ownerAddress, interfaceName) else null
                         disarm()
                         publish(NetworkStage.CONNECTED, "Red del receptor conectada. Autenticación ICCOA y proyección pendientes")
                     }
@@ -189,6 +207,46 @@ class P2pConnector(context: Context) {
         timeout = Runnable { if (ticket == generation) fail(message) }.also { handler.postDelayed(it, ms) }
     }
     private fun disarm() { timeout?.let(handler::removeCallbacks); timeout = null }
+    /** Explicit user action, restricted to the selected, verified P2P group. */
+    fun probeAuthChannel() {
+        if (mutableProbe.value.busy) return
+        if (mutable.value.stage != NetworkStage.CONNECTED || mutable.value.mode != NetworkMode.P2P) {
+            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "P2P del receptor no conectado")
+            return
+        }
+        val endpoint = verifiedEndpoint
+        if (endpoint == null) {
+            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Android no proporcionó destino e interfaz del grupo")
+            return
+        }
+        val service = connectivity
+        if (service == null) {
+            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Servicio de red no disponible")
+            return
+        }
+        val matchedNetwork = try {
+            @Suppress("DEPRECATION")
+            service.allNetworks.firstOrNull { service.getLinkProperties(it)?.interfaceName == endpoint.interfaceName }
+        } catch (_: SecurityException) { null }
+        if (matchedNetwork == null) {
+            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Android no expuso una red asociada a la interfaz P2P")
+            return
+        }
+        val ticket = ++probeGeneration
+        val socket = Socket()
+        probeSocket = socket
+        mutableProbe.value = AuthProbeStatus(AuthProbeStage.RUNNING, "Comprobando un canal TCP observado; sin enviar datos")
+        val started = SystemClock.elapsedRealtime()
+        Thread {
+            val result = OneShotTcpProbe.check(socket, endpoint.address, 57209, 2500) { matchedNetwork.bindSocket(it) }
+            val elapsed = SystemClock.elapsedRealtime() - started
+            handler.post {
+                if (ticket != probeGeneration) return@post
+                probeSocket = null
+                mutableProbe.value = AuthProbeStatus(AuthProbeStage.FINISHED, result.name, elapsed)
+            }
+        }.apply { name = "AionLink-auth-check"; isDaemon = true; start() }
+    }
     private fun fail(message: String) { release(); publish(NetworkStage.ERROR, message) }
     fun stop(reason: String = "Preparación/red de AionLink detenida") {
         val wasActive = mutable.value.stage !in setOf(NetworkStage.IDLE, NetworkStage.ERROR, NetworkStage.CANCELLED)
@@ -197,6 +255,11 @@ class P2pConnector(context: Context) {
     }
     private fun release() {
         generation++
+        probeGeneration++
+        try { probeSocket?.close() } catch (_: java.io.IOException) { }
+        probeSocket = null
+        if (mutableProbe.value.busy) mutableProbe.value = AuthProbeStatus(AuthProbeStage.CANCELLED, "La red o el intento se detuvo")
+        verifiedEndpoint = null
         disarm()
         val callback = apCallback; apCallback = null; apNetwork = null
         if (callback != null) try { connectivity?.unregisterNetworkCallback(callback) }

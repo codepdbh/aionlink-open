@@ -5,7 +5,7 @@ $env:JAVA_HOME = $JavaHome
 $env:ANDROID_HOME = $Sdk
 Push-Location (Join-Path $root 'android')
 try {
-    & ./gradlew.bat :core:test :protocol-iccoa:test :transport-bluetooth:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon --console plain
+    & ./gradlew.bat :core:test :protocol-iccoa:test :transport-bluetooth:testDebugUnitTest :transport-wifi:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon --console plain
     if ($LASTEXITCODE -ne 0) { throw "Android checks failed: $LASTEXITCODE" }
     $dest = Join-Path $root 'artifacts/builds'
     New-Item -ItemType Directory -Force $dest | Out-Null
