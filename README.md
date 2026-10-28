@@ -52,7 +52,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Aplicación Android | Kotlin, Jetpack Compose, Material 3 y ViewModel | Compilada e instalada |
 | Descubrimiento | BLE filtrado ICCOA de 15 segundos, alternativa Classic/BLE y candidatos destacados | Implementado en 0.5; identidad del receptor por verificar |
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
-| Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Escritura/respuesta verificadas en 0.9; 0.10 separa red de PORT; red y autenticación pendientes |
+| Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Red P2P formada tres veces con el AION en 0.10; autenticación pendiente |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | Implementado |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
@@ -198,6 +198,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 |---|---|
 | [Arquitectura](docs/architecture/SYSTEM_ARCHITECTURE.md) | Módulos, estados y límites |
 | [Investigación ICCOA](docs/protocol-research/ICCOA_RESEARCH.md) | Evidencias estáticas y modelo provisional |
+| [Canal de autenticación](docs/protocol-research/AUTH_CHANNEL_011.md) | Evidencia estática, limitaciones y siguientes pasos |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |
 | [Comparación de rutas](docs/protocol-research/PROTOCOL_COMPARISON.md) | Samsung, Xiaomi, OPPO y CarLife |

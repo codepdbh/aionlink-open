@@ -45,4 +45,14 @@ class NetworkPortIndependenceTest {
             } catch (error: ServerInfoException) { assertNotEquals(ServerInfoFault.PORT, error.fault) }
         }
     }
+
+    @Test fun numericOutOfRangeIsCategorizedWithoutKeepingItsValue() {
+        listOf("0" to ServerPortRange.ZERO, "-1" to ServerPortRange.NEGATIVE,
+            "65536" to ServerPortRange.ABOVE_MAX, "9223372036854775808" to ServerPortRange.OVERFLOW).forEach { (raw, expected) ->
+            val info = ServerInfo.parseForNetwork(base().put("port", raw).toString().toByteArray())
+            assertNull(info.port)
+            assertEquals(ServerPortStatus.OUT_OF_RANGE, info.portStatus)
+            assertEquals(expected, info.portRange)
+        }
+    }
 }

@@ -69,7 +69,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private var prepared: Prepared? = null
     private var attemptNumber = 0
     private val prepareHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private val backgroundExpiry = Runnable { stopAll("Plazo m\u00e1ximo de espera de la ventana Wi-Fi Android agotado en segundo plano") }
+    private val backgroundExpiry = Runnable { stopAll("Tiempo máximo del enlace en segundo plano agotado (50 s)") }
     private val prepareExpiry = Runnable { cancelPrepared("La preparaci\u00f3n para introducir el c\u00f3digo caduc\u00f3") }
     private fun operationBusy() = bootstrap.state.value.busy || network.state.value.busy || usb.state.value.busy ||
         gatt.state.value.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
@@ -122,7 +122,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val peer = discovery.observedBleDevice(peerId)
                 if (peer == null) { network.stop(); return@prepare }
                 bootstrap.readAvailableServerInfo(peer) { info ->
-                    event("ServerInfo obtenido por READ; solicitando red, sin sesi\u00f3n ICCOA")
+                    event("ServerInfo obtenido por READ; red=${info.mode}; puerto=${info.portStatus}; rango=${info.portRange}; sin sesión ICCOA")
                     network.connect(info)
                 }
             } else if (local.platformAddress.disclosure == AddressDisclosure.UNAVAILABLE) {
@@ -175,7 +175,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             event("PIN entregado al intercambio normal; valor omitido, env\u00edo todav\u00eda sin confirmar")
             bootstrap.start(peer, hello) { info ->
                 mutableConnectionNotice.value = "Respuesta BLE recibida; red ${info.mode}; puerto=${info.portStatus}; autenticación pendiente"
-                event("ServerInfo recibido tras ClientInfo; solicitando red ${info.mode}; puerto=${info.portStatus}")
+                event("ServerInfo recibido tras ClientInfo; solicitando red ${info.mode}; puerto=${info.portStatus}; rango=${info.portRange}")
                 network.connect(info)
             }
         } catch (_: IllegalArgumentException) {
@@ -185,16 +185,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
     fun resumed() { prepareHandler.removeCallbacks(backgroundExpiry) }
     fun background() {
-        if (network.systemWifiHandoff) {
+        if (preserveBackgroundHandoff(bootstrap.state.value.busy, network.systemWifiHandoff)) {
             discovery.stop(); gatt.cancel(); usb.stop()
-            event("Ventana de red Android en curso; se conserva la solicitud acotada, sin sesi\u00f3n ICCOA")
+            event("Enlace BLE o red en curso; se conserva hasta 50 s en segundo plano, sin sesión ICCOA")
             prepareHandler.removeCallbacks(backgroundExpiry)
             prepareHandler.postDelayed(backgroundExpiry, 50000)
         } else stopAll("Activity en segundo plano (puede incluir selector de archivos o cambio de app)")
     }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.10.0-research")
+        appendLine("AionLink Open 0.11.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.10.0")
+            Text("Cliente USB + Bluetooth experimental • v0.11.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)

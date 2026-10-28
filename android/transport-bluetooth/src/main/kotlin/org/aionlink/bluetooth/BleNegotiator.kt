@@ -211,7 +211,7 @@ class BleNegotiator(context: Context) {
     private fun accept(info: ServerInfo) {
         val next = output
         cleanup()
-        update(BootstrapStage.SERVER_RECEIVED, "ServerInfo de red recibido; modo=${info.mode}; puerto=${info.portStatus}. BLE cerrado; autenticación ICCOA pendiente")
+        update(BootstrapStage.SERVER_RECEIVED, "ServerInfo de red recibido; modo=${info.mode}; puerto=${info.portStatus}; rango=${info.portRange}. BLE cerrado; autenticación ICCOA pendiente")
         next?.invoke(info)
     }
     private fun update(stage: BootstrapStage, message: String) { mutable.value = mutable.value.copy(stage = stage, message = message) }

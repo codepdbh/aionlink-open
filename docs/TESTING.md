@@ -151,3 +151,15 @@ Véase protocol-research/NETWORK_BOOTSTRAP_010.md para evidencia y límites.
 Resultado 0.10: 6 Python + 55 JVM + 11 instrumentadas = 72 correctas.
 Instrumentación S25: OK (11 tests), 7,737 s, sin omisión de metadata local
 (ANDROID_ANONYMIZED). Build/lint correctos: 0 errores, 11 advertencias.
+
+## Pruebas 0.11
+
+Se ejecutaron 6 pruebas Python, 58 JVM (9 core, 45 protocolo, 4 Bluetooth)
+y 13 instrumentadas en el S25: 77 correctas. La instrumentación concluyó
+`OK (13 tests)` en 10,126 s y la consulta local informó ANDROID_ANONYMIZED.
+Las dos pruebas nuevas de estados usan los modelos reales de BLE y P2P/AP sin
+solicitar radio, y cubren WAITING_SERVER, CONNECTING, CONNECTED y etapas inactivas.
+La prueba de protocolo verifica la clasificación del puerto numérico sin
+conservar su valor. No simulan la Activity ni el temporizador de 50 s: la
+conservación efectiva en el AION requiere prueba física del propietario.
+Build y lint correctos; 0 errores y 11 advertencias.

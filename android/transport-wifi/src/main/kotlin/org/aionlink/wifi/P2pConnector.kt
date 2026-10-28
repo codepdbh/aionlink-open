@@ -21,6 +21,7 @@ import org.aionlink.iccoa.NetworkMode
 enum class NetworkStage { IDLE, PREPARING, READY, CONNECTING, CONNECTED, ERROR, CANCELLED }
 data class P2pStatus(val stage: NetworkStage = NetworkStage.IDLE, val message: String = "Red sin preparar", val mode: NetworkMode? = null) {
     val busy get() = stage in setOf(NetworkStage.PREPARING, NetworkStage.CONNECTING)
+    val handoffActive get() = stage in setOf(NetworkStage.CONNECTING, NetworkStage.CONNECTED)
 }
 class LocalP2p(val platformAddress: PlatformP2pAddress, val supports5Ghz: Boolean) {
     val address get() = platformAddress.realValueOrNull()
@@ -36,8 +37,7 @@ class P2pConnector(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private var apCallback: ConnectivityManager.NetworkCallback? = null
     private var apNetwork: Network? = null
-    val systemWifiHandoff get() = mutable.value.stage == NetworkStage.CONNECTING ||
-        mutable.value.mode == NetworkMode.ACCESS_POINT && mutable.value.stage == NetworkStage.CONNECTED
+    val systemWifiHandoff get() = mutable.value.handoffActive
     private val handler = Handler(Looper.getMainLooper())
     private var channel: WifiP2pManager.Channel? = null
     private var generation = 0

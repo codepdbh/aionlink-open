@@ -691,3 +691,39 @@ Get-FileHash SHA-256 y revisión estática del código propio; sin incidencias.
 Sólo documentación, no cambios de APK ni pruebas de código necesarias, ni
 conexiones al coche iniciadas desde el ordenador. Commit a main previamente
 autorizado, conservando originales y exportaciones fuera de Git.
+
+## 0.11 — continuidad del enlace e investigación AUTH — 2026-10-28
+
+Los diagnósticos 0.10 identificaron cancelación local de dos redes P2P conectadas
+y una espera BLE cuando la Activity pasó a segundo plano. La nueva política
+conserva BLE activo y P2P/AP CONNECTING o CONNECTED hasta 50 s en segundo plano;
+al volver cancela el temporizador. Detener y caducidad liberan recursos. No hay
+servicio persistente y Android puede terminar el proceso. El primer corte de
+18,85 s no tuvo cancelación previa local: causa desconocida y no se promete
+que la nueva política lo resuelva.
+
+OUT_OF_RANGE se subdivide en ZERO, NEGATIVE, ABOVE_MAX y OVERFLOW, sin guardar
+ni exportar el valor del puerto. No se asigna un endpoint ni se abre un socket.
+Investigación estática adicional en protocol-research/AUTH_CHANNEL_011.md:
+el cliente Samsung vincula AUTH a 57209 por tipo de canal, distinto del campo
+ServerInfo entregado a CarVerifier. No existe evidencia de puerto AUTH abierto
+en el AION. Faltan implementación y verificación del handshake, confirmación,
+sesión y medios; no se extrajeron secretos ni se copiaron fuentes propietarias.
+
+Validación: 6 Python, 58 JVM (9 core, 45 protocolo, 4 Bluetooth), 13 Android
+instrumentadas; total 77 correctas. S25: OK (13 tests), 10,126 s, consulta
+local ANDROID_ANONYMIZED, fixtures sin conexiones. Pruebas de estados no cubren
+el temporizador real ni la Activity, pendiente validación del propietario.
+assembleDebug y lintDebug correctos, 0 errores/11 advertencias; logs locales
+artifacts/reports/android-build-0.11.log, android-ui-build-0.11.log y
+private/ui-tests-0.11.txt. Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, JBR 21,
+SDK/build-tools 35, Python 3.14.2, ADB 37.0.0; apksigner verify correcto.
+
+APK 0.11.0-research, versionCode 11, 24 579 944 bytes; SHA-256
+`c583b720572faccd1efdf2256ce552a65885b895c07689071caa2c6425a449f3`.
+Instalación ADB Success y versión verificada; sólo paquete de tests retirado;
+MainActivity COLD/Status ok, 408 ms, sin FATAL en buffer del UID propio. No
+se iniciaron conexiones desde el ordenador ni pruebas con el AION. Incidencia:
+primer apply_patch rechazó dos operaciones sobre el mismo archivo; se aplicó
+de nuevo agrupando cambios. Sin modificación parcial. Advertencias CRLF/LF
+existentes; commit a main autorizado, sin publicar diagnósticos ni APK originales.

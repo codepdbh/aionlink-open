@@ -34,9 +34,10 @@ enum class ServerInfoFault { SIZE, UTF8, JSON, MODE, REQUIRED_FIELDS, SSID, PSK,
 class ServerInfoException(val fault: ServerInfoFault) : IllegalArgumentException("ServerInfo no válido: $fault; contenido omitido")
 
 enum class ServerPortStatus { VALID, MISSING, EMPTY, NON_INTEGER, OUT_OF_RANGE, UNSUPPORTED_TYPE }
+enum class ServerPortRange { NONE, ZERO, NEGATIVE, ABOVE_MAX, OVERFLOW }
 
 /** Classification only; never retains or reports an unusable peer value. */
-data class ServerPort private constructor(val value: Int?, val status: ServerPortStatus) {
+data class ServerPort private constructor(val value: Int?, val status: ServerPortStatus, val range: ServerPortRange = ServerPortRange.NONE) {
     override fun toString() = "ServerPort(status=$status)"
     companion object {
         fun inspect(raw: Any?): ServerPort {
@@ -48,14 +49,18 @@ data class ServerPort private constructor(val value: Int?, val status: ServerPor
             if (text.length > 20 || !text.matches(Regex("[+-]?[0-9]+")))
                 return ServerPort(null, ServerPortStatus.NON_INTEGER)
             val number = text.toLongOrNull()
-            if (number == null || number !in 1L..65535L) return ServerPort(null, ServerPortStatus.OUT_OF_RANGE)
+            if (number == null) return ServerPort(null, ServerPortStatus.OUT_OF_RANGE, ServerPortRange.OVERFLOW)
+            if (number <= 0) return ServerPort(null, ServerPortStatus.OUT_OF_RANGE,
+                if (number == 0L) ServerPortRange.ZERO else ServerPortRange.NEGATIVE)
+            if (number > 65535) return ServerPort(null, ServerPortStatus.OUT_OF_RANGE, ServerPortRange.ABOVE_MAX)
             return ServerPort(number.toInt(), ServerPortStatus.VALID)
         }
     }
 }
 
 class ServerInfo private constructor(val ssid: String, val passphrase: String, val mac: String,
-                                    val frequency: Int, val port: Int?, val mode: NetworkMode, val portStatus: ServerPortStatus) {
+                                    val frequency: Int, val port: Int?, val mode: NetworkMode, val portStatus: ServerPortStatus,
+                                    val portRange: ServerPortRange) {
     override fun toString() = "ServerInfo(redacted)"
     companion object {
         /** Strict endpoint parser for consumers that require a usable TCP/UDP port. */
@@ -84,7 +89,7 @@ class ServerInfo private constructor(val ssid: String, val passphrase: String, v
                 checkField(psk.length in 8..63 && psk.all { it.code in 32..126 }, ServerInfoFault.PSK)
                 checkField(validUnicastMac(mac), ServerInfoFault.MAC)
                 checkField(freq in 2412..2484 || freq in 5000..5900 || mode == NetworkMode.ACCESS_POINT && freq == 0, ServerInfoFault.FREQUENCY)
-                return ServerInfo(ssid, psk, mac, freq, endpoint.value, mode, endpoint.status)
+                return ServerInfo(ssid, psk, mac, freq, endpoint.value, mode, endpoint.status, endpoint.range)
             } catch (error: ServerInfoException) {
                 throw error
             } catch (_: Exception) {
