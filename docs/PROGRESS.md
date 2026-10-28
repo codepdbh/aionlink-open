@@ -621,3 +621,18 @@ La próxima prueba mide escritura confirmada, ServerInfo válido y modalidad/red
 obtenida. No se promete autenticación ni proyección: el receptor puede rechazar
 el experimento. Se mantiene la autorización previa de commit a main; publicación
 limitada a código propio, pruebas y documentos, nunca datos/artefactos privados.
+
+## Revisión de pruebas 0.9 — 2026-10-28
+
+Dos nuevos TXT recuperados por ADB 37.0.0 y conservados en privado; hashes,
+horas y límites en protocol-research/VEHICLE_DIAGNOSTICS_2026-10-28.md.
+Dos intentos del propietario del 27 de octubre: ClientInfo de 139 bytes con
+escritura confirmada, MTU 512, respuesta de 123 bytes en ambos. Nuestro parser
+rechaza PORT y cancela antes de Wi-Fi. Primer intercambio BLE confirmado;
+no demuestra aceptación del PIN, autenticación o proyección. AOA sigue en cero.
+Samsung estático lee port como String; su semántica y el valor real del AION
+siguen sin determinar. No se inventó un puerto ni se relajaron validaciones.
+Sólo documentación; sin pruebas de código, instalación o conexiones al coche.
+Incidencias de herramientas: primera lectura usó ruta de paquete incorrecta;
+se localizó con rg --files y se corrigió. Búsqueda PowerShell demasiado amplia
+por comillas se sustituyó por lectura dirigida; sin impacto en los originales.
