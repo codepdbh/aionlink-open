@@ -64,7 +64,7 @@ class BleNegotiator(context: Context) {
         } }
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) = dispatch(gatt) {
-                if (status != BluetoothGatt.GATT_SUCCESS) fail("Error de enlace GATT ($status)")
+                if (status != BluetoothGatt.GATT_SUCCESS) fail("Error de enlace GATT ($status); estado Android=$newState; etapa=${mutable.value.stage}; escritura confirmada=${mutable.value.writeConfirmed}; no determina causa ni rechazo de PIN")
                 else if (newState == BluetoothProfile.STATE_CONNECTED && mutable.value.stage == BootstrapStage.CONNECTING) {
                     update(BootstrapStage.MTU, "Negociando tamaño GATT")
                     if (!gatt.requestMtu(512)) discover(gatt)

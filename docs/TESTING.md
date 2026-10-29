@@ -195,3 +195,13 @@ ambigüedad y direcciones inválidas; un test loopback adicional verifica bind d
 origen y EOF sin payload. No prueban disponibilidad real de interfaz, ruta de
 salida de Android ni canal del AION. La instrumentación del S25 conserva las
 pruebas de diálogo, metadata local y componentes existentes.
+
+## Pruebas 0.14
+
+6 Python, 75 JVM (9 core, 56 protocolo, 4 Bluetooth, 6 Wi-Fi) y 17 Android:
+98 correctas. Tres tests de negociación normal offline crean claves propias y
+un peer sintético que genera pruebas y firma; verifican resultado, rechazo de
+PIN simulado distinto, firma alterada, campos faltantes y uso único. No hay
+derivación, confirmación ni handshake real. Dos tests Android adicionales comprueban
+generación local de solicitud con JCA y conservación del resumen AUTH al detener,
+sin solicitar red. No se probaron vehículo ni enlace AUTH criptográfico real.

@@ -894,3 +894,41 @@ MainActivity COLD/Status ok 435 ms; cero FATAL de UID propio. Primer build repet
 tras limitar prefijos aceptados. Fuentes Android públicas consultadas; no se
 iniciaron conexiones al coche ni se ejecutaron APK de terceros. Diagnósticos y
 APK originales se conservan fuera de Git; commit a main autorizado previamente.
+
+## 0.14 — canal TCP observado y negociación offline — 2026-10-29
+
+Diagnóstico (18) recuperado por ADB, 6802 bytes, SHA-256
+`208417d632eee8aa0622c2334ecb2d5a80b202373a55ef0ffa049df107189d33`,
+guardado en private/vehicle-tests-2026-10-29-b/. Cronología y límites en
+protocol-research/VEHICLE_DIAGNOSTICS_013_2026-10-29.md. Primer intento:
+BLE y P2P CONNECTED, TCP AUTH OPEN ruta=P2P_SOURCE en 35 ms, sin payload; red
+se perdió a los 18,828590 s. Segundo intento confirmó escritura BLE y recibió
+GATT 19 sin ServerInfo; causa/PIN no inferibles. El OPEN es socket, no sesión;
+bind de origen local no acredita por sí solo interfaz de salida ante rutas ambiguas.
+
+El resumen exportado 0.14 conserva contador y última prueba AUTH por proceso
+entre intentos, evitando que IDLE oculte el OPEN previo. Error GATT añade estado
+Android, etapa previa y confirmación de escritura, sin atribución de causa.
+ExperimentalNormalAuth agrega generación de claves P-256 propias y verificación
+de prueba/firma de un peer simulado, con copia temporal del PIN borrada al cerrar.
+No usa red ni está conectado al flujo de la app; no deriva o confirma sesión ni
+implementa medios. No se envió autenticación al coche ni se ejecutaron originales.
+
+Validación: 6 Python, 75 JVM (9 core, 56 protocolo, 4 Bluetooth, 6 Wi-Fi),
+17 Android = 98 correctas. Tests negativos con PIN simulado, firma alterada,
+campos faltantes y segundo uso; fixtures de peer propias sin red de vehículo.
+Android OK (17 tests), 8,985 s, ANDROID_ANONYMIZED; pruebas adicionales de JCA
+y conservación de resultado sin red. Build/lint correctos, 0 errores/11 avisos.
+Logs privados artifacts/reports/android-build-0.14-final.log,
+android-ui-build-0.14-final.log y private/ui-tests-0.14-final.txt. JBR 21,
+Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2,
+ADB 37.0.0; apksigner verify correcto.
+
+APK 0.14.0-research, versionCode 14, 24 709 051 bytes; SHA-256
+`9211dcbb9abd0c6224bc51ecc6a24ae8ec716a32bd355ae6aad0865148504743`.
+Instalación Success, versión comprobada, paquete de tests retirado; MainActivity
+COLD/Status ok 394 ms y cero FATAL del UID propio. Búsqueda inicial bajo /sdcard
+no siguió el enlace simbólico y no devolvió archivos; se localizó (18) en Download.
+Build repetido después de mejorar limpieza del PIN, detalle GATT y test JCA.
+No hubo prueba remota en el vehículo; no corresponde repetir la prueba sólo por
+el negociador offline. Commit a main autorizado, TXT y APK originales privados.

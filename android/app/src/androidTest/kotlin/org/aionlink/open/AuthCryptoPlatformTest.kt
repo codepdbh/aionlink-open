@@ -5,12 +5,22 @@ import java.security.KeyPairGenerator
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import org.aionlink.iccoa.ExperimentalAuthCrypto
+import org.aionlink.iccoa.ExperimentalNormalAuth
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AuthCryptoPlatformTest {
+    @Test fun platformCreatesEphemeralNormalRequestWithoutNetwork() {
+        ExperimentalNormalAuth("123456".toByteArray(), "test-client".toByteArray(), "test-phone", 1).use { attempt ->
+            val request = attempt.request()
+            assertEquals(64, request.authPoint.size)
+            assertEquals(64, request.agreementPoint.size)
+            assertEquals(32, request.proof.size)
+            assertEquals(32, request.nonce.size)
+        }
+    }
     @Test fun platformSupportsObservedPublicPointAndPinProofPrimitives() {
         val generator = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }
         val key = generator.generateKeyPair().public as ECPublicKey

@@ -61,6 +61,11 @@ class P2pConnector(context: Context) {
     private var probeGeneration = 0
     private val mutableProbe = MutableStateFlow(AuthProbeStatus())
     val authProbe = mutableProbe.asStateFlow()
+    var lastAuthProbe: AuthProbeStatus? = null
+        private set
+    var authProbeCount: Int = 0
+        private set
+    private fun finishProbe(status: AuthProbeStatus) { lastAuthProbe = status; mutableProbe.value = status }
     private val mutable = MutableStateFlow(P2pStatus())
     val state = mutable.asStateFlow()
     fun requiredPermissions() = if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -212,18 +217,19 @@ class P2pConnector(context: Context) {
     /** Explicit user action, restricted to the selected, verified P2P group. */
     fun probeAuthChannel() {
         if (mutableProbe.value.busy) return
+        authProbeCount++
         if (mutable.value.stage != NetworkStage.CONNECTED || mutable.value.mode != NetworkMode.P2P) {
-            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "P2P del receptor no conectado")
+            finishProbe(AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "P2P del receptor no conectado"))
             return
         }
         val endpoint = verifiedEndpoint
         if (endpoint == null) {
-            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Android no proporcionó destino e interfaz del grupo")
+            finishProbe(AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Android no proporcionó destino e interfaz del grupo"))
             return
         }
         val service = connectivity
         if (service == null) {
-            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Servicio de red no disponible")
+            finishProbe(AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Servicio de red no disponible"))
             return
         }
         val matchedNetwork = try {
@@ -239,7 +245,7 @@ class P2pConnector(context: Context) {
         } catch (_: java.net.SocketException) { null } catch (_: SecurityException) { null }
         else null
         if (matchedNetwork == null && sourceAddress == null) {
-            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Sin Network P2P ni dirección local inequívoca de la interfaz del grupo")
+            finishProbe(AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Sin Network P2P ni dirección local inequívoca de la interfaz del grupo"))
             return
         }
         val routeMode = if (matchedNetwork != null) "NETWORK" else "P2P_SOURCE"
@@ -257,7 +263,7 @@ class P2pConnector(context: Context) {
             handler.post {
                 if (ticket != probeGeneration) return@post
                 probeSocket = null
-                mutableProbe.value = AuthProbeStatus(AuthProbeStage.FINISHED, "${result.name}; ruta=$routeMode", elapsed)
+                finishProbe(AuthProbeStatus(AuthProbeStage.FINISHED, "${result.name}; ruta=$routeMode", elapsed))
             }
         }.apply { name = "AionLink-auth-check"; isDaemon = true; start() }
     }
@@ -272,7 +278,7 @@ class P2pConnector(context: Context) {
         probeGeneration++
         try { probeSocket?.close() } catch (_: java.io.IOException) { }
         probeSocket = null
-        if (mutableProbe.value.busy) mutableProbe.value = AuthProbeStatus(AuthProbeStage.CANCELLED, "La red o el intento se detuvo")
+        if (mutableProbe.value.busy) finishProbe(AuthProbeStatus(AuthProbeStage.CANCELLED, "La red o el intento se detuvo"))
         verifiedEndpoint = null
         disarm()
         val callback = apCallback; apCallback = null; apNetwork = null
