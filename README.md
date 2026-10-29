@@ -54,7 +54,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
 | Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Red P2P formada tres veces con el AION en 0.10; autenticación pendiente |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
-| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.12 añade comprobación TCP AUTH opcional y acotada; no autentica |
+| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.13 añade ruta de origen P2P para comprobación TCP opcional; no autentica |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
 | Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |

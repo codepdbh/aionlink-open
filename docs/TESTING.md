@@ -186,3 +186,12 @@ comprueban conexión única sin payload, fallo de vinculación sin conexión y l
 El test de diálogo confirma que sólo un clic explícito invoca el callback y no
 usa la red. La prueba pública de metadata local Android se ejecutó sin omisiones.
 No hay prueba con el AION ni prueba de disponibilidad de Network P2P en S25.
+
+## Pruebas 0.13
+
+6 Python, 72 JVM (9 core, 53 protocolo, 4 Bluetooth, 6 Wi-Fi) y 15 Android:
+93 correctas. Dos tests de selección de dirección local usan subredes sintéticas,
+ambigüedad y direcciones inválidas; un test loopback adicional verifica bind de
+origen y EOF sin payload. No prueban disponibilidad real de interfaz, ruta de
+salida de Android ni canal del AION. La instrumentación del S25 conserva las
+pruebas de diálogo, metadata local y componentes existentes.

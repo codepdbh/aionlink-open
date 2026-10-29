@@ -18,6 +18,8 @@ import org.aionlink.iccoa.PlatformP2pAddress
 import org.aionlink.iccoa.AddressDisclosure
 import org.aionlink.iccoa.NetworkMode
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.net.Socket
 
 enum class NetworkStage { IDLE, PREPARING, READY, CONNECTING, CONNECTED, ERROR, CANCELLED }
@@ -228,22 +230,34 @@ class P2pConnector(context: Context) {
             @Suppress("DEPRECATION")
             service.allNetworks.firstOrNull { service.getLinkProperties(it)?.interfaceName == endpoint.interfaceName }
         } catch (_: SecurityException) { null }
-        if (matchedNetwork == null) {
-            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Android no expuso una red asociada a la interfaz P2P")
+        val sourceAddress = if (matchedNetwork == null) try {
+            val interfaceInfo = NetworkInterface.getByName(endpoint.interfaceName)
+            val candidates = interfaceInfo?.interfaceAddresses?.mapNotNull {
+                it.address?.let { address -> P2pSourceAddress.Candidate(address, it.networkPrefixLength.toInt()) }
+            } ?: emptyList()
+            P2pSourceAddress.select(endpoint.address, candidates)
+        } catch (_: java.net.SocketException) { null } catch (_: SecurityException) { null }
+        else null
+        if (matchedNetwork == null && sourceAddress == null) {
+            mutableProbe.value = AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "Sin Network P2P ni dirección local inequívoca de la interfaz del grupo")
             return
         }
+        val routeMode = if (matchedNetwork != null) "NETWORK" else "P2P_SOURCE"
         val ticket = ++probeGeneration
         val socket = Socket()
         probeSocket = socket
-        mutableProbe.value = AuthProbeStatus(AuthProbeStage.RUNNING, "Comprobando un canal TCP observado; sin enviar datos")
+        mutableProbe.value = AuthProbeStatus(AuthProbeStage.RUNNING, "Comprobando canal TCP; ruta=$routeMode; sin enviar datos")
         val started = SystemClock.elapsedRealtime()
         Thread {
-            val result = OneShotTcpProbe.check(socket, endpoint.address, 57209, 2500) { matchedNetwork.bindSocket(it) }
+            val result = OneShotTcpProbe.check(socket, endpoint.address, 57209, 2500) {
+                if (matchedNetwork != null) matchedNetwork.bindSocket(it)
+                else it.bind(InetSocketAddress(sourceAddress!!, 0))
+            }
             val elapsed = SystemClock.elapsedRealtime() - started
             handler.post {
                 if (ticket != probeGeneration) return@post
                 probeSocket = null
-                mutableProbe.value = AuthProbeStatus(AuthProbeStage.FINISHED, result.name, elapsed)
+                mutableProbe.value = AuthProbeStatus(AuthProbeStage.FINISHED, "${result.name}; ruta=$routeMode", elapsed)
             }
         }.apply { name = "AionLink-auth-check"; isDaemon = true; start() }
     }

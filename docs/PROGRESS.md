@@ -855,3 +855,42 @@ Los builds se repitieron tras mover el botón al inicio y añadir prueba UI. No 
 sabe si Android expone la Network P2P al S25; sólo una prueba física lo aclarará.
 Autenticación y medios siguen incompletos. Commit a main ya autorizado; datos
 privados, APK originales y artefactos no se publican.
+
+## 0.13 — diagnósticos 0.12 y origen local P2P — 2026-10-29
+
+Dos TXT nuevos (16)/(17), del mismo proceso y con historial solapado, copiados
+en private/vehicle-tests-2026-10-29/. Hashes, horas y cronología en
+protocol-research/VEHICLE_DIAGNOSTICS_012_2026-10-28.md. Dos escrituras BLE y
+respuestas confirmadas; port ZERO y dos grupos P2P conectados, durante 18,694225
+y 18,856022 s. Primer diagnóstico AUTH: UNAVAILABLE por no exponer Android una
+Network asociada; no se intentó socket. Segundo intento sin prueba AUTH. Ambas
+desconexiones tienen causa desconocida. La exportación de 0.12 conservó la red
+en segundo plano. Red formada no implica sesión ICCOA.
+
+0.13 conserva Network.bindSocket cuando hay Network correspondiente. Si falta,
+consulta direcciones de la interfaz P2P pública informada por el grupo, exige
+una única IPv4 local válida que comparta subred /16..30 con el propietario y
+vincula el socket a dicha dirección. Si no puede determinarla, UNAVAILABLE sin
+conexión. No se muestra dirección ni interfaz; se reporta ruta NETWORK o
+P2P_SOURCE. Bind de dirección local no garantiza por sí mismo interfaz de salida
+ante rutas ambiguas; destino sigue siendo el propietario del grupo verificado.
+Prueba permanece manual y consentida, TCP único 2,5 s sin payload. No se han
+verificado disponibilidad de interfaz ni interoperabilidad en el AION; OPEN sólo
+significa apertura TCP. Autenticación y proyección siguen sin implementar.
+
+Validación: 6 Python, 72 JVM (9 core, 53 protocolo, 4 Bluetooth, 6 Wi-Fi),
+15 Android: 93 correctas. Selección sintética prueba subred, ambigüedad,
+direcciones y prefijos inválidos; loopback prueba bind local y ausencia de payload.
+Instrumentación S25 OK (15 tests), 9,196 s, ANDROID_ANONYMIZED. Build/lint
+correctos, 0 errores/11 advertencias. Logs privados artifacts/reports/
+android-build-0.13-final.log, android-ui-build-0.13-final.log y
+private/ui-tests-0.13-final.txt. JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20,
+SDK/build-tools 35, Python 3.14.2, ADB 37.0.0; apksigner verify correcto.
+
+APK 0.13.0-research, versionCode 13, 24 676 231 bytes, SHA-256
+`d8c0d92b28ec0917e6223a6295be6ab37960d43f4c78f517eb06b93d3dcc327a`.
+Instalación ADB Success, versión confirmada; paquete de tests retirado;
+MainActivity COLD/Status ok 435 ms; cero FATAL de UID propio. Primer build repetido
+tras limitar prefijos aceptados. Fuentes Android públicas consultadas; no se
+iniciaron conexiones al coche ni se ejecutaron APK de terceros. Diagnósticos y
+APK originales se conservan fuera de Git; commit a main autorizado previamente.

@@ -39,6 +39,22 @@ class OneShotTcpProbeTest {
         }
     }
 
+    @Test fun explicitSourceBindingUsesOnlyTheSuppliedLocalAddress() {
+        val loopback = InetAddress.getLoopbackAddress()
+        ServerSocket(0, 1, loopback).use { server ->
+            server.soTimeout = 2000
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val accepted = executor.submit<Int> { server.accept().use { it.getInputStream().read() } }
+                val result = OneShotTcpProbe.check(Socket(), loopback, server.localPort, 1000) {
+                    it.bind(java.net.InetSocketAddress(loopback, 0))
+                }
+                assertEquals(TcpProbeResult.OPEN, result)
+                assertEquals(-1, accepted.get(2, TimeUnit.SECONDS).toInt())
+            } finally { executor.shutdownNow() }
+        }
+    }
+
     @Test fun invalidTimeoutAndPortAreRejected() {
         for ((port, timeout) in listOf(0 to 1000, 1234 to 0, 1234 to 5001)) {
             Socket().use { socket ->
