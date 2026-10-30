@@ -11,10 +11,11 @@ import java.net.ServerSocket
 import java.net.Socket
 
 /** Parameters agreed in M4 and confirmed by SETUP/PLAY. */
-data class WfdPlay(val sink: InetAddress, val rtpPort: Int, val mode: WfdVideoMode)
+data class WfdPlay(val sink: InetAddress, val rtpPort: Int, val mode: WfdVideoMode, val audioCodec: String?, val uibc: Boolean)
 
 data class WfdStatus(val stage: String = "IDLE", val detail: String = "", val carDisplayMode: String = "ausente",
-                     val sinkVideoFormats: String = "ausente", val sinkAudioCodecs: String = "ausente")
+                     val sinkVideoFormats: String = "ausente", val sinkAudioCodecs: String = "ausente",
+                     val sinkUibc: String = "ausente")
 
 /**
  * Independent Wi-Fi Display (Miracast) source RTSP session, following the public WFD message sequence
@@ -56,6 +57,8 @@ class WfdSource(
     private var status = WfdStatus()
     private var mode: WfdVideoMode? = null
     private var clientPort: Int? = null
+    private var audioCodec: String? = null
+    private var uibc = false
     private val sessionId = (java.security.SecureRandom().nextInt() and 0x7fffffff).coerceAtLeast(1)
     private var keepAlive: Thread? = null
 
@@ -107,7 +110,8 @@ class WfdSource(
                 val values = message.parameters()
                 status = status.copy(carDisplayMode = WfdFormats.safeExcerpt(values["wfd_car_display_mode"]),
                     sinkVideoFormats = WfdFormats.safeExcerpt(values["wfd_video_formats"]),
-                    sinkAudioCodecs = WfdFormats.safeExcerpt(values["wfd_audio_codecs"]))
+                    sinkAudioCodecs = WfdFormats.safeExcerpt(values["wfd_audio_codecs"]),
+                    sinkUibc = WfdFormats.safeExcerpt(values["wfd_uibc_capability"]))
                 val video = WfdFormats.chooseVideo(values["wfd_video_formats"])
                 val rtp = WfdFormats.clientRtpPort(values["wfd_client_rtp_ports"])
                 if (video == null || rtp == null) {
@@ -117,7 +121,10 @@ class WfdSource(
                 publish("M3_OK", "modo=${video.width}x${video.height}p${video.fps}")
                 val body = buildString {
                     append("wfd_video_formats: ").append(video.m4Value()).append("\r\n")
-                    WfdFormats.chooseAudio(values["wfd_audio_codecs"])?.let { append("wfd_audio_codecs: ").append(it).append("\r\n") }
+                    audioCodec = WfdFormats.chooseAudio(values["wfd_audio_codecs"])
+                    audioCodec?.let { append("wfd_audio_codecs: ").append(it).append("\r\n") }
+                    uibc = WfdFormats.sinkSupportsUibc(values["wfd_uibc_capability"])
+                    if (uibc) append("wfd_uibc_capability: ").append(WfdFormats.UIBC_CAPABILITY).append("\r\n")
                     append("wfd_presentation_URL: rtsp://${local.hostAddress}/wfd1.0/streamid=0 none\r\n")
                     append("wfd_client_rtp_ports: ").append(values.getValue("wfd_client_rtp_ports")).append("\r\n")
                 }
@@ -161,7 +168,7 @@ class WfdSource(
                 val chosen = mode; val rtp = clientPort
                 if (chosen != null && rtp != null) {
                     publish("PLAYING", "${chosen.width}x${chosen.height}p${chosen.fps}")
-                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen))
+                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen, audioCodec, uibc))
                     startKeepAlive(output)
                 }
             }

@@ -1080,3 +1080,33 @@ Instalacion ADB Success; paquete de tests retirado; MainActivity COLD/Status ok
 383 ms; cero FATAL del UID propio. El dialogo de captura no se probo por ADB
 para no interferir con el telefono. Prueba en coche pendiente del propietario
 con vehiculo estacionado.
+
+## 0.19 - tactil del vehiculo (UIBC) y audio - 2026-10-30
+
+Solicitud del propietario: dejar listos el tactil del coche y el audio.
+Analisis estatico de Samsung 3.1.04.10; procedencia en
+protocol-research/TOUCH_AUDIO_019.md. UIBC: el telefono escucha TCP 4321,
+el coche envia JSON plano (toques type 1 con x/y en espacio del video, teclas
+con keycode); M4 declara la capacidad literal de la biblioteca. Audio: la ruta
+por defecto de musica es captura de reproduccion PCM 48 kHz dentro del flujo
+Wi-Fi Display (AAC o LPCM); MEDIA 57229 y SENSOR 57239 son servidores cifrados.
+
+Implementado: UibcServer/UibcParser/UibcMapper, TouchInjectionService
+(accesibilidad, gestos y teclas atras/inicio/recientes), AudioCapture
+(AudioPlaybackCapture + AAC-LC/ADTS), pista AAC en TsRtpStreamer, M4 con UIBC
+y preferencia AAC, escuchas pasivas MEDIA/SENSOR, permiso RECORD_AUDIO y boton
+de accesibilidad. Sin LPCM, pellizco, microfono, audio por MEDIA ni avisos de
+navegacion. No verificado con el AION.
+
+Validacion: 6 Python, 92 JVM (9 core, 59 protocolo, 10 proyeccion, 4
+Bluetooth, 10 Wi-Fi) y 20 instrumentadas en el S25 correctas. Build/lint
+correctos, 0 errores/11 advertencias. Logs: artifacts/reports/
+android-build-0.19.log y android-ui-build-0.19.log. Mismas versiones de
+herramientas que 0.18. Dos ediciones con Python fallaron por escapes de \r\n y
+\s en el texto buscado; se aplicaron con el editor sin cambios parciales.
+
+APK 0.19.0-research, versionCode 19, 24 827 625 bytes, SHA-256
+`04631d9a3e225bfb816832c6bbc4a642d4db379742674a482f6b100d35ec21f3`.
+Instalacion ADB Success; paquete de tests retirado; MainActivity COLD/Status ok
+364 ms; cero FATAL; dumpsys accessibility lista TouchInjectionService como
+servicio instalado (no activado). Prueba en coche pendiente del propietario.

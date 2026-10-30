@@ -15,7 +15,10 @@ class WfdFormatsTest {
         assertNull(WfdFormats.chooseVideo("none")); assertNull(WfdFormats.chooseVideo(null))
     }
     @Test fun audioAndPorts() {
-        assertEquals("LPCM 00000002 00", WfdFormats.chooseAudio("LPCM 00000003 00, AAC 00000001 00"))
+        assertEquals("AAC 00000001 00", WfdFormats.chooseAudio("LPCM 00000003 00, AAC 00000001 00"))
+        assertEquals("LPCM 00000002 00", WfdFormats.chooseAudio("LPCM 00000003 00"))
+        assertTrue(WfdFormats.sinkSupportsUibc("input_category_list=GENERIC;generic_cap_list=SingleTouch;port=none"))
+        assertFalse(WfdFormats.sinkSupportsUibc("none")); assertFalse(WfdFormats.sinkSupportsUibc(null))
         assertEquals("AAC 00000001 00", WfdFormats.chooseAudio("AAC 0000000f 00"))
         assertNull(WfdFormats.chooseAudio("none"))
         assertEquals(19000, WfdFormats.clientRtpPort("RTP/AVP/UDP;unicast 19000 0 mode=play"))

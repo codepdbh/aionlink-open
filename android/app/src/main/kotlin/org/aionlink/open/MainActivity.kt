@@ -227,7 +227,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.18.0-research")
+        appendLine("AionLink Open 0.19.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -267,8 +267,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("RTSP WFD: ${rtsp.stage}; ${rtsp.detail}")
         appendLine("Receptor wfd_video_formats=${rtsp.sinkVideoFormats}")
         appendLine("Receptor wfd_audio_codecs=${rtsp.sinkAudioCodecs}; wfd_car_display_mode=${rtsp.carDisplayMode}")
+        appendLine("Receptor wfd_uibc_capability=${rtsp.sinkUibc}")
+        appendLine(projection.auxiliary.value)
         val video = projection.stream.value
         appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}")
+        appendLine("Audio: ${video.audio}; tramas AAC=${video.audioFrames}")
+        val touch = projection.touch.value
+        appendLine("Táctil UIBC: ${touch.stage}; eventos=${touch.events}; aplicados=${touch.injected}; fuera de imagen=${touch.outside}; accesibilidad activa=${TouchInjectionService.instance != null}; sin coordenadas")
         val cable = usb.state.value
         appendLine("USB: etapa=${cable.stage}; accesorios=${cable.accessories.size}; dispositivos en modo host=${cable.hostDevices}; alimentación reportada USB=${cable.usbPower}")
         cable.accessories.forEach { appendLine("Accesorio temporal=${it.id}; identificador ICCOA observado=${it.observedIccoa}; permiso=${it.permission}") }
@@ -343,8 +348,16 @@ class MainActivity : ComponentActivity() {
     val controlChannel by model.projection.control.collectAsStateWithLifecycle()
     val rtspSession by model.projection.rtsp.collectAsStateWithLifecycle()
     val videoStream by model.projection.stream.collectAsStateWithLifecycle()
+    val touchState by model.projection.touch.collectAsStateWithLifecycle()
+    val auxiliary by model.projection.auxiliary.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         model.captureGranted(result.resultCode, result.data)
+    }
+    val captureContext = androidx.compose.ui.platform.LocalContext.current
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        model.event(if (granted) "Permiso de audio concedido para captura de reproducción" else "Permiso de audio denegado; se proyectará sin sonido")
+        val manager = captureContext.getSystemService(android.media.projection.MediaProjectionManager::class.java)
+        capture.launch(manager.createScreenCaptureIntent())
     }
     val operationBusy = negotiation.busy || network.busy || authProbe.busy || authExchange.busy || cable.busy || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     val gattBusy = negotiation.busy || network.busy || network.stage == NetworkStage.CONNECTED || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
@@ -424,7 +437,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.18.0")
+            Text("Cliente USB + Bluetooth experimental • v0.19.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -434,13 +447,17 @@ class MainActivity : ComponentActivity() {
             }
             Text("Proyección", style = MaterialTheme.typography.titleLarge)
             Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
-            Button(onClick = {
-                val manager = context.getSystemService(android.media.projection.MediaProjectionManager::class.java)
-                capture.launch(manager.createScreenCaptureIntent())
-            }, modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla") }
+            Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) },
+                modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, modifier = Modifier.fillMaxWidth()) { Text("Activar táctil del coche (accesibilidad)") }
+            Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")
             Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
+            Text(auxiliary)
             Text("RTSP: ${rtspSession.stage} ${rtspSession.detail}")
             Text("Vídeo: ${videoStream.stage} ${videoStream.detail} • ${videoStream.accessUnits} cuadros • ${videoStream.datagrams} RTP")
+            Text("Audio: ${videoStream.audio} • ${videoStream.audioFrames} tramas AAC")
             Text("Canal AUTH: ${authProbe.stage} • ${authProbe.detail}")
             Text("Solicitud AUTH: ${authExchange.stage} • ${authExchange.detail}")
             Text("Buscar receptor ICCOA", style = MaterialTheme.typography.titleLarge)

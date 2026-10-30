@@ -1,5 +1,12 @@
 # Cambios
 
+## 0.19.0-research — 2026-10-30
+
+- Táctil del vehículo: servidor UIBC (4321), JSON observado y gestos mediante un servicio de accesibilidad.
+- Audio del teléfono capturado (AudioPlaybackCapture) y enviado como AAC dentro del flujo Wi-Fi Display.
+- Escuchas cifradas pasivas MEDIA (57229) y SENSOR (57239); M4 declara UIBC y prefiere AAC.
+- Sin LPCM, pellizco ni micrófono; sin verificar con el AION.
+
 ## 0.18.0-research — 2026-10-30
 
 - Canal CONTROL del teléfono (57219) con cuerpos cifrados por la clave de sesión, heartbeat y ACK.

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_service_label">AionLink Open: táctil del vehículo</string>
+    <string name="touch_service_description">Reproduce en este teléfono los toques de la pantalla del vehículo durante una proyección AionLink que hayas iniciado. Solo realiza gestos y botones atrás/inicio/recientes; no lee el contenido de la pantalla.</string>
+</resources>

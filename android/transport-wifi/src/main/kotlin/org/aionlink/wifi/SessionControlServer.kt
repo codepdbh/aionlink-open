@@ -28,9 +28,15 @@ data class ControlChannelStatus(
  */
 class SessionControlServer(
     private val local: InetAddress, sessionKey: ByteArray, private val port: Int = PORT,
+    /** false = passive encrypted listener (Samsung MEDIA 57229 / SENSOR 57239 server channels): ACK only. */
+    private val active: Boolean = true,
     private val onStatus: (ControlChannelStatus) -> Unit
 ) : AutoCloseable {
-    companion object { const val PORT = 57219 }
+    companion object {
+        const val PORT = 57219
+        const val MEDIA_PORT = 57229
+        const val SENSOR_PORT = 57239
+    }
     private val key = sessionKey.copyOf().also { sessionKey.fill(0) }
     private val sequence = AtomicLong(1)
     private val received = AtomicInteger(); private val heartbeatsIn = AtomicInteger()
@@ -67,9 +73,11 @@ class SessionControlServer(
             peer.tcpNoDelay = true; peer.keepAlive = true
             publish("CONNECTED")
             val output = peer.getOutputStream()
-            // Samsung r5/f.onConnect: BluetoothMacInfo{op=ADD(0), mac=""} when no adapter address is available.
-            send(output, UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_SEND_SYNC), 22, ByteArray(0))
-            Thread({ heartbeatLoop(output) }, "AionLink-control-heartbeat").apply { isDaemon = true; start() }
+            if (active) {
+                // Samsung r5/f.onConnect: BluetoothMacInfo{op=ADD(0), mac=""} when no adapter address is available.
+                send(output, UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_SEND_SYNC), 22, ByteArray(0))
+                Thread({ heartbeatLoop(output) }, "AionLink-control-heartbeat").apply { isDaemon = true; start() }
+            }
             readLoop(DataInputStream(peer.getInputStream()), output)
         } catch (_: java.net.SocketTimeoutException) { if (!closed) publish("NO_CONNECTION_30S") }
         catch (_: EOFException) { if (!closed) publish("CLOSED_BY_RECEIVER") }

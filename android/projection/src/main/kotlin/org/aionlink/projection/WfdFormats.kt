@@ -33,15 +33,25 @@ object WfdFormats {
         return null
     }
 
-    /** Picks one audio codec the sink lists. Audio streaming itself is not implemented; the M4 value is declarative. */
+    const val AAC_48K_STEREO = "AAC 00000001 00"
+    const val LPCM_48K_STEREO = "LPCM 00000002 00"
+
+    /** Samsung's library prefers AAC ("Using AAC audio."); AionLink streams AAC-LC 48 kHz stereo. LPCM is declared only. */
     fun chooseAudio(sinkValue: String?): String? {
         val value = sinkValue?.trim() ?: return null
         if (value.isEmpty() || value.equals("none", true)) return null
         val entries = value.split(",").map { it.trim().split(Regex("\\s+")) }.filter { it.size >= 2 }
-        entries.firstOrNull { it[0] == "LPCM" && (it[1].toLongOrNull(16) ?: 0) and 2L != 0L }?.let { return "LPCM 00000002 00" }
-        entries.firstOrNull { it[0] == "AAC" && (it[1].toLongOrNull(16) ?: 0) and 1L != 0L }?.let { return "AAC 00000001 00" }
+        entries.firstOrNull { it[0] == "AAC" && (it[1].toLongOrNull(16) ?: 0) and 1L != 0L }?.let { return AAC_48K_STEREO }
+        entries.firstOrNull { it[0] == "LPCM" && (it[1].toLongOrNull(16) ?: 0) and 2L != 0L }?.let { return LPCM_48K_STEREO }
         return null
     }
+
+    /** Exact capability line found in Samsung's display library; sent in M4 when the sink reports UIBC. */
+    const val UIBC_CAPABILITY = "input_category_list=GENERIC,HIDC;generic_cap_list=SingleTouch, MultiTouch;" +
+        "hidc_cap_list=Keyboard/USB, Keyboard/BT;port=4321"
+
+    fun sinkSupportsUibc(sinkValue: String?): Boolean =
+        sinkValue?.trim()?.let { it.isNotEmpty() && !it.equals("none", true) } ?: false
 
     /** "RTP/AVP/UDP;unicast 19000 0 mode=play" → 19000. */
     fun clientRtpPort(sinkValue: String?): Int? {

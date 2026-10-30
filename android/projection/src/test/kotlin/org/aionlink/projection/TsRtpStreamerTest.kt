@@ -45,4 +45,34 @@ class TsRtpStreamerTest {
         assertArrayEquals(au, bytes.copyOfRange(14, bytes.size))
         assertEquals(1, streamer.accessUnits)
     }
+
+    @Test fun audioTrackIsDeclaredAndCarriedInBoundedPes() {
+        val datagrams = mutableListOf<ByteArray>()
+        val streamer = TsRtpStreamer({ datagrams += it }, audio = true)
+        val aac = ByteArray(300) { 9 }
+        val frame = TsRtpStreamer.adtsHeader(aac.size) + aac
+        streamer.onAudioFrame(frame, 0) // ignored until PSI has been sent with video
+        assertEquals(0, streamer.audioFrames)
+        streamer.onAccessUnit(byteArrayOf(0, 0, 0, 1, 0x65, 1), 0, true)
+        datagrams.clear()
+        streamer.onAudioFrame(frame, 20_000)
+        val packets = datagrams.flatMap { d -> (12 until d.size step 188).map { d.copyOfRange(it, it + 188) } }
+        assertTrue(packets.all { pid(it) == TsRtpStreamer.AUDIO_PID })
+        val start = if (packets[0][3].toInt() and 0x20 != 0) 5 + (packets[0][4].toInt() and 255) else 4
+        assertArrayEquals(byteArrayOf(0, 0, 1, 0xC0.toByte()), packets[0].copyOfRange(start, start + 4))
+        val pesLength = ((packets[0][start + 4].toInt() and 255) shl 8) or (packets[0][start + 5].toInt() and 255)
+        assertEquals(8 + frame.size, pesLength)
+        assertEquals(1, streamer.audioFrames)
+    }
+
+    @Test fun adtsHeaderEncodesAacLc48kStereo() {
+        val header = TsRtpStreamer.adtsHeader(100)
+        assertEquals(0xFFF1, ((header[0].toInt() and 255) shl 8) or (header[1].toInt() and 255))
+        assertEquals(1, (header[2].toInt() and 0xC0) ushr 6)       // AAC LC
+        assertEquals(3, (header[2].toInt() and 0x3C) ushr 2)       // 48 kHz
+        val channels = ((header[2].toInt() and 1) shl 2) or ((header[3].toInt() and 0xC0) ushr 6)
+        assertEquals(2, channels)
+        val length = ((header[3].toInt() and 3) shl 11) or ((header[4].toInt() and 255) shl 3) or ((header[5].toInt() and 0xE0) ushr 5)
+        assertEquals(107, length)
+    }
 }

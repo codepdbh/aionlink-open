@@ -45,4 +45,21 @@ class SessionControlServerTest {
         }
         assertTrue(stages.containsAll(listOf("LISTENING", "CONNECTED")))
     }
+
+    @Test fun passiveChannelOnlyAcknowledges() {
+        val key = ByteArray(16) { 5 }
+        val testKey = key.copyOf()
+        SessionControlServer(InetAddress.getLoopbackAddress(), key, port = 0, active = false) { }.use { server ->
+            server.start()
+            Socket(InetAddress.getLoopbackAddress(), server.boundPort).use { car ->
+                car.soTimeout = 3000
+                val sealed = ExperimentalAuthCrypto.sessionSeal(testKey, byteArrayOf(8, 1))
+                car.getOutputStream().write(UCarFrameWriter.frame(UCarFrameWriter.flags(0, 1, 3), 2, 1, sealed, 9, 0))
+                val header = ByteArray(20); DataInputStream(car.getInputStream()).readFully(header)
+                val first = UCarFrameReader.header(header)
+                // No BluetoothMacInfo or heartbeat precedes the ACK on a passive channel.
+                assertEquals(UCarFrameWriter.CATEGORY_ACK, first.category); assertEquals(9L, first.sequence)
+            }
+        }
+    }
 }
