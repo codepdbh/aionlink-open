@@ -104,4 +104,16 @@ class ExperimentalAuthWireTest {
             } finally { executor.shutdownNow() }
         }
     }
+
+    @Test fun confirmFrameUsesObservedSendHeaderAndCipherField() {
+        val cipher = ByteArray(46) { 7 }
+        val frame = ExperimentalAuthWire.confirmFrame(cipher, 2, 100)
+        val decoded = UCarFrameReader.read(ByteArrayInputStream(frame))!!
+        assertEquals("AUTH_CONFIRM_STATIC_CANDIDATE", decoded.header.authMessageLabel)
+        assertEquals(1, decoded.header.source); assertEquals(2L, decoded.header.sequence)
+        assertArrayEquals(byteArrayOf(10, 46) + cipher, decoded.bodyCopy())
+        try { ExperimentalAuthWire.confirmFrame(cipher, 0, 0); fail("non-positive sequence") } catch (_: IllegalArgumentException) { }
+        try { ExperimentalAuthWire.requestFrame(request(), 0x80000000L, 0); fail("negative signed sequence") }
+        catch (_: IllegalArgumentException) { }
+    }
 }

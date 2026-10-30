@@ -63,6 +63,8 @@ class P2pConnector(context: Context) {
     private var probeSocket: Socket? = null
     private var probeGeneration = 0
     private var exchangeTimeout: Runnable? = null
+    /** Receives the group address and a session-key copy before AuthConfirm; the receiver owns and wipes the key. */
+    var onSessionAuthenticated: ((java.net.Inet4Address, ByteArray) -> Unit)? = null
     private val mutableExchange = MutableStateFlow(AuthExchangeStatus())
     val authExchange = mutableExchange.asStateFlow()
     private val mutableProbe = MutableStateFlow(AuthProbeStatus())
@@ -308,9 +310,10 @@ class P2pConnector(context: Context) {
                 mutableExchange.value = AuthExchangeStatus(AuthProbeStage.FINISHED, "TIMEOUT_TOTAL; ruta=$route")
             }
         }
-        exchangeTimeout = deadline; handler.postDelayed(deadline, 8000)
+        exchangeTimeout = deadline; handler.postDelayed(deadline, 10000)
         Thread {
-            val result = ExperimentalAuthExchange.run(socket, endpoint.address, 57209, pin, clientId, model) {
+            val result = ExperimentalAuthExchange.run(socket, endpoint.address, 57209, pin, clientId, model,
+                onAuthenticated = { local, key -> onSessionAuthenticated?.invoke(local, key) ?: key.fill(0) }) {
                 if (matched != null) matched.bindSocket(it) else it.bind(InetSocketAddress(source!!, 0))
             }
             handler.post {

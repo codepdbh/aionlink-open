@@ -42,6 +42,8 @@ class ExperimentalNormalAuthTest {
             assertTrue(checker.verify(request.agreementSignature))
             assertEquals(PeerCheck.VERIFIED_PROOF_AND_SIGNATURE, attempt.verify(peer(request)))
             try { attempt.request(); fail("attempt reused") } catch (_: IllegalStateException) { }
+            assertTrue(attempt.confirmCipher("192.168.49.2").isNotEmpty())
+            try { attempt.confirmCipher("192.168.49.2"); fail("confirmation reused") } catch (_: IllegalStateException) { }
         }
     }
     @Test fun wrongPinAndTamperedSignatureAreRejectedAndAttemptConsumed() {
@@ -49,6 +51,7 @@ class ExperimentalNormalAuthTest {
             val request = attempt.request()
             val response = peer(request, wrongPin = mode == 0, corruptSignature = mode == 1)
             assertEquals(if (mode == 0) PeerCheck.BAD_PROOF else PeerCheck.BAD_SIGNATURE, attempt.verify(response))
+            try { attempt.confirmCipher("192.168.49.2"); fail("unverified confirmation") } catch (_: IllegalStateException) { }
             try { attempt.verify(response); fail("attempt reused") } catch (_: IllegalStateException) { }
         }
     }

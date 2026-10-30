@@ -16,7 +16,10 @@ import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
 import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import org.aionlink.iccoa.UCarFrameReader
 import org.aionlink.iccoa.ExperimentalAuthCrypto
@@ -39,10 +42,13 @@ class ExperimentalAuthExchangeTest {
         val body = ByteArray(decoded.totalBytes - 20); stream.readFully(body)
         val proto = CodedInputStream.newInstance(body)
         val values = mutableMapOf<Int, ByteArray>()
+        var workModes = -1
         while (true) {
             val tag = proto.readTag(); if (tag == 0) break
-            if (tag in listOf(18, 26, 34, 42, 50)) values[tag] = proto.readByteArray() else proto.skipField(tag)
+            if (tag in listOf(18, 26, 34, 42, 50)) values[tag] = proto.readByteArray()
+            else if (tag == 80) workModes = proto.readInt32() else proto.skipField(tag)
         }
+        check(decoded.sequence == 1L && workModes == 257)
         val localAuth = values.getValue(18); val localAgreement = values.getValue(34); val localNonce = values.getValue(50)
         val clientKey = MessageDigest.getInstance("SHA-256").digest(localNonce + "123456".toByteArray())
         val expectedClientProof = Mac.getInstance("HmacSHA256").run { init(SecretKeySpec(clientKey, "HmacSHA256")); doFinal(localAuth) }
@@ -70,6 +76,29 @@ class ExperimentalAuthExchangeTest {
             .putInt(1).put(18).put(3).putShort(2).putShort(0).putShort(0).put(replyBody).array()
         val crc = UCarFrameReader.crc16Arc(reply, 18); reply[18] = (crc ushr 8).toByte(); reply[19] = crc.toByte()
         socket.getOutputStream().write(reply)
+        if (wrongPin) return
+        // Independent peer-side derivation: ECDH, salt SHA-256(client nonce || peer nonce), HKDF info "session_key".
+        val secret = KeyAgreement.getInstance("ECDH").run {
+            init(agreement.private); doPhase(ExperimentalAuthCrypto.decodePublicPoint(localAgreement), true); generateSecret()
+        }
+        val salt = MessageDigest.getInstance("SHA-256").digest(localNonce + peerNonce)
+        val prk = Mac.getInstance("HmacSHA256").run { init(SecretKeySpec(salt, "HmacSHA256")); doFinal(secret) }
+        val sessionKey = Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(prk, "HmacSHA256")); update("session_key".toByteArray()); doFinal(byteArrayOf(1))
+        }.copyOf(16)
+        val confirmHeader = ByteArray(20); stream.readFully(confirmHeader)
+        val confirm = UCarFrameReader.header(confirmHeader)
+        check(confirm.authMessageLabel == "AUTH_CONFIRM_STATIC_CANDIDATE" && confirm.source == 1 && confirm.sequence == 2L)
+        val confirmBody = ByteArray(confirm.totalBytes - 20); stream.readFully(confirmBody)
+        val confirmProto = CodedInputStream.newInstance(confirmBody)
+        check(confirmProto.readTag() == 10)
+        val envelope = ByteBuffer.wrap(confirmProto.readByteArray())
+        val iv = ByteArray(envelope.int).also { envelope.get(it) }
+        val sealed = ByteArray(envelope.int).also { envelope.get(it) }
+        val plain = Cipher.getInstance("AES/GCM/NoPadding").run {
+            init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), GCMParameterSpec(128, iv)); doFinal(sealed)
+        }
+        check(String(plain) == socket.inetAddress.hostAddress + ":0")
     }
     @Test fun loopbackPeerAuthenticatesProofAndRejectsWrongPin() {
         for (wrong in listOf(false, true)) ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
@@ -79,7 +108,9 @@ class ExperimentalAuthExchangeTest {
                 val serverResult = worker.submit { server.accept().use { peer(it, wrong) } }
                 val pin = "123456".toByteArray(); val id = "test-only".toByteArray()
                 val result = ExperimentalAuthExchange.run(Socket(), InetAddress.getLoopbackAddress(), server.localPort, pin, id, "test-phone") { }
-                assertEquals(if (wrong) "RESPONSE_BAD_PROOF; resultado=0; versión=EXPECTED" else "RESPONSE_VERIFIED_PROOF_AND_SIGNATURE; resultado=0; versión=EXPECTED", result)
+                assertEquals(if (wrong) "RESPONSE_BAD_PROOF; resultado=0; versión=EXPECTED; workModes=AUSENTE"
+                    else "RESPONSE_VERIFIED_PROOF_AND_SIGNATURE; resultado=0; versión=EXPECTED; workModes=AUSENTE; " +
+                        "CONFIRM_SENT; tras confirmación=CERRADO_POR_RECEPTOR", result)
                 assertTrue(pin.all { it == 0.toByte() }); assertTrue(id.all { it == 0.toByte() })
                 serverResult.get(4, TimeUnit.SECONDS)
             } finally { worker.shutdownNow() }

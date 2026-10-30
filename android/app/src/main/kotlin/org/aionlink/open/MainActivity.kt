@@ -51,6 +51,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private val mutableEvents = MutableStateFlow(listOf("Cliente de investigación iniciado. Compatibilidad sin verificar."))
     val events = mutableEvents.asStateFlow()
     val usb = UsbAccessoryClient(application, ::event)
+    val projection = ProjectionSession(application, ::event)
+    fun captureGranted(resultCode: Int, data: android.content.Intent?) {
+        if (resultCode != android.app.Activity.RESULT_OK || data == null) { event("Captura de pantalla no autorizada"); return }
+        ProjectionService.start(getApplication(), resultCode, data)
+        event("Captura de pantalla autorizada para esta sesión; se usará tras PLAY del receptor")
+    }
     fun event(message: String) {
         val next = mutableEvents.value + "${java.time.Instant.now()} $message"
         droppedEvents += (next.size - 500).coerceAtLeast(0)
@@ -102,6 +108,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         prepareHandler.removeCallbacks(backgroundExpiry)
         clearAutoAuth("AUTH automático cancelado: $reason")
         cancelPrepared(reason); discovery.stop(); gatt.cancel(); bootstrap.cancel(reason); network.stop(reason)
+        projection.stop(reason)
         usb.stop(); session.disconnect(); event(reason)
     }
     fun inspect(peerId: String) {
@@ -201,7 +208,10 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
     fun resumed() { prepareHandler.removeCallbacks(backgroundExpiry) }
     fun background() {
-        if (preserveBackgroundHandoff(bootstrap.state.value.busy, network.systemWifiHandoff)) {
+        if (projection.active) {
+            discovery.stop(); gatt.cancel(); usb.stop()
+            event("Sesión de proyección activa; se conserva en segundo plano hasta Detener")
+        } else if (preserveBackgroundHandoff(bootstrap.state.value.busy, network.systemWifiHandoff)) {
             discovery.stop(); gatt.cancel(); usb.stop()
             event("Enlace BLE o red en curso; se conserva hasta 50 s en segundo plano, sin sesión ICCOA")
             prepareHandler.removeCallbacks(backgroundExpiry)
@@ -217,7 +227,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.16.0-research")
+        appendLine("AionLink Open 0.18.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -251,6 +261,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("AUTH automático pendiente: ${pendingAutoPin.pending}; sólo este intento; código omitido")
         appendLine("Solicitud AUTH experimental: ${network.authExchange.value.stage}; ${network.authExchange.value.detail}; sesión no confirmada")
         appendLine("PIN, MAC, SSID, PSK y contenido ServerInfo omitidos. Red conectada no implica autenticaci\u00f3n ICCOA.")
+        val control = projection.control.value
+        appendLine("Canal CONTROL: ${control.stage}; recibidos=${control.received}; heartbeats recibidos=${control.heartbeatsReceived}; enviados=${control.heartbeatsSent}; ACK=${control.acksSent}; fallos descifrado=${control.decryptFailures}; categoría*1000+método=${control.lastMethods}")
+        val rtsp = projection.rtsp.value
+        appendLine("RTSP WFD: ${rtsp.stage}; ${rtsp.detail}")
+        appendLine("Receptor wfd_video_formats=${rtsp.sinkVideoFormats}")
+        appendLine("Receptor wfd_audio_codecs=${rtsp.sinkAudioCodecs}; wfd_car_display_mode=${rtsp.carDisplayMode}")
+        val video = projection.stream.value
+        appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}")
         val cable = usb.state.value
         appendLine("USB: etapa=${cable.stage}; accesorios=${cable.accessories.size}; dispositivos en modo host=${cable.hostDevices}; alimentación reportada USB=${cable.usbPower}")
         cable.accessories.forEach { appendLine("Accesorio temporal=${it.id}; identificador ICCOA observado=${it.observedIccoa}; permiso=${it.permission}") }
@@ -286,6 +304,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 mutableConnectionNotice.value = it.message
             }
         } }
+        network.onSessionAuthenticated = { local, key -> projection.onAuthenticated(local, key) }
         viewModelScope.launch { network.authProbe.collect {
             event("Prueba TCP AUTH: ${it.stage}; ${it.detail}; duración ms=${it.elapsedMs}; sin payload ni sesión ICCOA")
         } }
@@ -295,7 +314,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
     } } }
-    override fun onCleared() { stopAll("ViewModel finalizado"); usb.close() }
+    override fun onCleared() { stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -321,6 +340,12 @@ class MainActivity : ComponentActivity() {
     val network by model.network.state.collectAsStateWithLifecycle()
     val authProbe by model.network.authProbe.collectAsStateWithLifecycle()
     val authExchange by model.network.authExchange.collectAsStateWithLifecycle()
+    val controlChannel by model.projection.control.collectAsStateWithLifecycle()
+    val rtspSession by model.projection.rtsp.collectAsStateWithLifecycle()
+    val videoStream by model.projection.stream.collectAsStateWithLifecycle()
+    val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        model.captureGranted(result.resultCode, result.data)
+    }
     val operationBusy = negotiation.busy || network.busy || authProbe.busy || authExchange.busy || cable.busy || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     val gattBusy = negotiation.busy || network.busy || network.stage == NetworkStage.CONNECTED || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     var showOthers by remember { mutableStateOf(false) }
@@ -399,7 +424,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.16.0")
+            Text("Cliente USB + Bluetooth experimental • v0.18.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -407,6 +432,15 @@ class MainActivity : ComponentActivity() {
                 Button(onClick = { pendingAuthExchange = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Intentar AUTH experimental") }
                 OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Solo comprobar puerto (sin autenticación)") }
             }
+            Text("Proyección", style = MaterialTheme.typography.titleLarge)
+            Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
+            Button(onClick = {
+                val manager = context.getSystemService(android.media.projection.MediaProjectionManager::class.java)
+                capture.launch(manager.createScreenCaptureIntent())
+            }, modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla") }
+            Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
+            Text("RTSP: ${rtspSession.stage} ${rtspSession.detail}")
+            Text("Vídeo: ${videoStream.stage} ${videoStream.detail} • ${videoStream.accessUnits} cuadros • ${videoStream.datagrams} RTP")
             Text("Canal AUTH: ${authProbe.stage} • ${authProbe.detail}")
             Text("Solicitud AUTH: ${authExchange.stage} • ${authExchange.detail}")
             Text("Buscar receptor ICCOA", style = MaterialTheme.typography.titleLarge)

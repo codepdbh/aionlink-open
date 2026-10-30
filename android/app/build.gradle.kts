@@ -3,7 +3,7 @@ android {
     namespace = "org.aionlink.open"; compileSdk = 35
     defaultConfig {
         applicationId = "org.aionlink.open"; minSdk = 29; targetSdk = 35
-        versionCode = 16; versionName = "0.16.0-research"
+        versionCode = 18; versionName = "0.18.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":transport-bluetooth")); implementation(project(":vehicle-profiles"))
     implementation(project(":transport-usb"))
     implementation(project(":transport-wifi"))
+    implementation(project(":projection"))
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3")

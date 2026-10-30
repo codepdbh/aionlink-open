@@ -1,5 +1,17 @@
 # Cambios
 
+## 0.18.0-research — 2026-10-30
+
+- Canal CONTROL del teléfono (57219) con cuerpos cifrados por la clave de sesión, heartbeat y ACK.
+- Fuente Wi-Fi Display propia: RTSP M1–M7, MPEG-TS/RTP y vídeo H.264 desde MediaProjection.
+- Los listeners se abren antes de AuthConfirm; botón para autorizar la captura de pantalla.
+- Sin audio, táctil (UIBC) ni SENSOR; sin verificar con el AION.
+
+## 0.17.0-research — 2026-10-30
+
+- Solicitud AUTH con secuencia positiva y workModes 257 observados en Samsung.
+- Derivación HKDF-SHA256 de la clave de sesión y envío de AuthConfirm cifrado.
+
 ## 0.4.0-research — 2026-10-22
 
 - Módulo Android USB/AOA con detección, permiso explícito, apertura y cierre del descriptor.

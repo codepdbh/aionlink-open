@@ -57,4 +57,19 @@ class ExperimentalAuthCryptoTest {
         local[0] = 0
         assertFalse(ExperimentalAuthCrypto.verifyPeerProof(peer, local, peerNonce, localNonce, pin, expected))
     }
+
+    @Test fun hkdfMatchesRfc5869TestCaseOne() {
+        val okm = ExperimentalAuthCrypto.hkdfSha256(ByteArray(22) { 0x0b }, bytes("000102030405060708090a0b0c"),
+            bytes("f0f1f2f3f4f5f6f7f8f9"), 42)
+        assertArrayEquals(bytes("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"), okm)
+    }
+    @Test fun sessionEnvelopeRoundTripsAndRejectsTampering() {
+        val key = ByteArray(16) { it.toByte() }
+        val sealed = ExperimentalAuthCrypto.sessionSeal(key, "192.168.49.2:0".toByteArray())
+        assertEquals(12, java.nio.ByteBuffer.wrap(sealed).int)
+        assertEquals("192.168.49.2:0", String(ExperimentalAuthCrypto.sessionOpen(key, sealed)))
+        sealed[sealed.lastIndex] = (sealed.last().toInt() xor 1).toByte()
+        try { ExperimentalAuthCrypto.sessionOpen(key, sealed); fail("tampered envelope accepted") }
+        catch (_: javax.crypto.AEADBadTagException) { }
+    }
 }

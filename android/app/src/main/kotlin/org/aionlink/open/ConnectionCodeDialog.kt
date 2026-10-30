@@ -40,7 +40,7 @@ fun ConnectionCodeDialog(readiness: CodeReadiness, detail: String, onSubmit: (St
             }
             Row {
                 Checkbox(checked = autoAuth, onCheckedChange = { autoAuth = it }, modifier = Modifier.testTag("auto-auth-consent"))
-                Text("Autorizar una solicitud AUTH experimental automática cuando conecte Wi-Fi Direct. El código se mantiene temporalmente en memoria; puede fallar o desconectar. Aún no hay proyección.")
+                Text("Autorizar AUTH experimental automático (solicitud y, si la respuesta es válida, confirmación) cuando conecte Wi-Fi Direct. El código se mantiene temporalmente en memoria; puede fallar o desconectar. Aún no hay proyección.")
             }
             OutlinedTextField(value = code,
                 onValueChange = { code = it.filter { c -> c in '0'..'9' }.take(6) },

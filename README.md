@@ -57,7 +57,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.16 añade solicitud AUTH experimental y verifica prueba/firma; sesión pendiente |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
-| Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |
+| Sesión y proyección | AUTH completo, CONTROL cifrado, RTSP Wi-Fi Display y vídeo H.264 (0.18) | Implementado sin verificar en el AION; sin audio ni táctil |
 
 **Validación:** consultar [pruebas](docs/TESTING.md) y [progreso](docs/PROGRESS.md)
 para los resultados de cada versión. Los tests verifican componentes propios,
@@ -140,8 +140,8 @@ android/
 ├── protocol-iccoa/        Adaptador de investigación; devuelve Unsupported
 ├── transport-bluetooth/   Descubrimiento Classic y BLE
 ├── transport-usb/         AOA experimental, permisos y lectura de canales
-├── transport-wifi/        Pendiente: topología y transporte Wi-Fi
-├── projection/            Pendiente: medios sobre sesión verificada
+├── transport-wifi/        Wi-Fi Direct, AUTH y canal CONTROL experimentales
+├── projection/            Fuente Wi-Fi Display (RTSP, MPEG-TS/RTP) experimental
 └── vehicle-profiles/      Perfiles y evidencia por vehículo
 ```
 
@@ -201,6 +201,8 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Canal de autenticación](docs/protocol-research/AUTH_CHANNEL_011.md) | Evidencia estática, limitaciones y siguientes pasos |
 | [Diagnóstico AUTH 0.12](docs/protocol-research/AUTH_PROBE_012.md) | Prueba TCP opcional, límites y significado |
 | [Solicitud AUTH 0.15](docs/protocol-research/AUTH_EXCHANGE_015.md) | Solicitud experimental, consentimiento y límites |
+| [AUTH 0.17](docs/protocol-research/AUTH_CONFIRM_017.md) | Secuencia, workModes, derivación de sesión y AuthConfirm |
+| [Proyección 0.18](docs/protocol-research/PROJECTION_018.md) | CONTROL cifrado, fuente Wi-Fi Display, TS/RTP y captura |
 | [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |

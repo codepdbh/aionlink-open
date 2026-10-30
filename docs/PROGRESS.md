@@ -1009,3 +1009,74 @@ APK 0.16.0-research, versionCode 16, 24 915 255 bytes; SHA-256
 Instalacion ADB Success; paquete de tests retirado, MainActivity COLD/Status ok,
 504 ms. Prueba de coche queda a cargo del propietario estacionado. Diagnosticos
 y APK originales permanecen privados; commit a main autorizado previamente.
+
+## 0.17 - solicitud AUTH corregida y AuthConfirm observado - 2026-10-30
+
+Sin diagnostico nuevo: (20) sigue siendo el ultimo y no envio AUTH. Revision
+estatica de Samsung 3.1.04.10 con contraste Xiaomi 4.0.14; detalle, rutas y
+limites en protocol-research/AUTH_CONFIRM_017.md. Tres defectos de 0.15/0.16:
+secuencia aleatoria de 32 bits (Samsung cuenta desde 1 y el par rechaza
+seqId <= 0 al responder), workModes=0 (Samsung envia 257 = NORMAL_CAST |
+MIRROR_WINDOW_CAST; resultado 4 = negociacion de modos fallida) y cierre del
+socket sin AuthConfirm. Hipotesis no verificada: el receptor abandona el grupo
+a los ~18,8 s por no completar AUTH.
+
+0.17 envia secuencia 1 y workModes 257; tras verificar prueba y firma deriva
+HKDF-SHA256(ECDH, SHA-256(nonce local || nonce receptor), "session_key", 16),
+cifra "<IPv4 local del grupo>:0" con AES-GCM en el sobre observado y envia
+AuthConfirm (SEND, AUTH, metodo 3, secuencia 2). Observa hasta 1,5 s solo la
+cabecera de una trama siguiente y cierra. Plazo total 10 s (antes 8 s). No se
+exportan clave, codigo, direccion ni payload. No se implementan canal CONTROL,
+medios ni proyeccion; el envio de AuthConfirm no demuestra sesion aceptada.
+
+Validacion: 6 Python y 80 JVM (9 core, 59 protocolo, 4 Bluetooth, 8 Wi-Fi)
+correctas. Nuevas: vector RFC 5869 caso 1, sobre AES-GCM con rechazo de
+manipulacion, cabecera AuthConfirm y secuencias invalidas, uso unico del
+confirm; loopback con par independiente que comprueba secuencia, workModes,
+deriva la clave y descifra el confirm. Build y lint correctos, 0 errores/11
+advertencias. Log: artifacts/reports/android-build-0.17.log. Instrumentadas
+Android no se ejecutaron en esta version (solo cambiaron textos de dialogos).
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python
+3.14.2, ADB 37.0.0. La primera edicion escribio CRLF; se normalizo a LF.
+
+APK 0.17.0-research, versionCode 17, 24 694 632 bytes, SHA-256
+`af80796c2c0a7165a98ba367bb02fd41da06ef16535e40c3f2911b01d0bc6715`.
+Instalacion ADB Success; MainActivity COLD/Status ok 299 ms; cero FATAL del UID
+propio. Prueba en coche pendiente del propietario con vehiculo estacionado.
+
+## 0.18 - CONTROL, fuente Wi-Fi Display y captura de pantalla - 2026-10-30
+
+Solicitud del propietario: implementar la etapa posterior a AUTH a partir de
+las APK y hacer commit. Analisis estatico de Samsung 3.1.04.10/3.1.02.20 y
+Xiaomi 4.0.14; detalle y procedencia en protocol-research/PROJECTION_018.md.
+Hallazgos: tras AuthConfirm el telefono es servidor CONTROL en IP local:57219
+con cuerpos cifrados por la clave de sesion, heartbeat cada 2 s,
+BluetoothMacInfo al conectar y ACK de SEND_SYNC; la proyeccion es una variante
+de AOSP WifiDisplaySource (RTSP Wi-Fi Display, MPEG-TS sobre RTP) con el
+parametro propio wfd_car_display_mode. Puerto RTSP: Xiaomi usa 7236 y Samsung
+3.1.04.10 pasa 57219 a la biblioteca nativa; discrepancia abierta, se usa 7236.
+
+Implementado de forma independiente: UCarFrameWriter, SessionControlServer,
+WfdSource (M1-M7, keep-alive, IDR, TEARDOWN), WfdFormats, TsRtpStreamer,
+ProjectionService (MediaProjection en primer plano, H.264 hardware) y
+ProjectionSession. Los listeners se abren antes de enviar AuthConfirm. Nuevo
+boton "Preparar captura de pantalla"; la sesion de proyeccion se conserva en
+segundo plano hasta Detener. Sin audio, UIBC ni SENSOR. No verificado con el
+AION; ninguna prueba usa capturas del vehiculo.
+
+Validacion: 6 Python y 86 JVM (9 core, 59 protocolo, 5 proyeccion, 4
+Bluetooth, 9 Wi-Fi) correctas; 20 instrumentadas en el S25 correctas. Build y
+lint correctos, 0 errores/11 advertencias (el primer build tuvo 14; se
+corrigieron 3 avisos nuevos de ProjectionService). Logs:
+artifacts/reports/android-build-0.18.log y android-ui-build-0.18.log. JBR 21,
+Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2,
+ADB 37.0.0. Un heredoc de bash fallo por comillas al crear tests; se
+escribieron con el editor. Un comando PowerShell se ejecuto desde un
+subdirectorio y no encontro la ruta del log; se repitio desde la raiz.
+
+APK 0.18.0-research, versionCode 18, 25 046 851 bytes, SHA-256
+`00fea06f62ff5f99aa5326d713c8127b72fdb57c637824f45c25afe1a0be2151`.
+Instalacion ADB Success; paquete de tests retirado; MainActivity COLD/Status ok
+383 ms; cero FATAL del UID propio. El dialogo de captura no se probo por ADB
+para no interferir con el telefono. Prueba en coche pendiente del propietario
+con vehiculo estacionado.

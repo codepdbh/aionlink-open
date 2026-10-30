@@ -17,7 +17,7 @@ fun AuthExchangeDialog(onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
         onDismissRequest = ::cancel,
         title = { Text("Solicitud AUTH experimental") },
         text = { Column {
-            Text("Con tu vehículo estacionado, introduce de nuevo el código actual. Se enviará una solicitud experimental y se comprobará la respuesta. Puede fallar o desconectar el receptor. Aún no hay proyección ni confirmación de sesión.")
+            Text("Con tu vehículo estacionado, introduce de nuevo el código actual. Se enviará una solicitud experimental, se comprobará la respuesta y, si es válida, se enviará la confirmación AUTH observada. Puede fallar o desconectar el receptor. Aún no hay proyección.")
             OutlinedTextField(value = pin, onValueChange = { pin = it.filter { c -> c in '0'..'9' }.take(6) },
                 label = { Text("Código del vehículo") }, singleLine = true, modifier = Modifier.testTag("auth-exchange-pin"),
                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))

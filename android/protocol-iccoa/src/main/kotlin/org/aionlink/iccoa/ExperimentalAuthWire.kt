@@ -8,6 +8,10 @@ import java.nio.ByteOrder
 /** Offline-only AUTH request codec, independently authored from observed field numbers. */
 object ExperimentalAuthWire {
     const val MAX_BODY = 4096
+    /** Samsung ShareLinkService work modes: NORMAL_CAST (1) | MIRROR_WINDOW_CAST (256). Result 4 rejects modes. */
+    const val OBSERVED_CLIENT_WORK_MODES = 1 or 256
+    /** Samsung SequenceGenerator starts at 1; the peer's MessageHeader.updateSeqId rejects values <= 0. */
+    const val FIRST_SEQUENCE = 1L
 
     class Request(
         val version: Int, val authPoint: ByteArray, val proof: ByteArray,
@@ -38,16 +42,21 @@ object ExperimentalAuthWire {
 
     /** Header values are sourced from static evidence, not receiver verification. */
     fun requestFrame(value: Request, sequence: Long, timestampSeconds: Long): ByteArray {
-        require(sequence in 0..0xffffffffL && timestampSeconds in 0..0xffffffffL)
         val body = requestBody(value)
-        val result = ByteBuffer.allocate(UCarFrameReader.HEADER_BYTES + body.size).order(ByteOrder.BIG_ENDIAN)
-            .putInt(UCarFrameReader.HEADER_BYTES + body.size).putInt(sequence.toInt()).putInt(timestampSeconds.toInt())
-            .put(11).put(3).putShort(1).putShort(0).putShort(0).put(body).array()
-        val crc = UCarFrameReader.crc16Arc(result, 18)
-        result[18] = (crc ushr 8).toByte(); result[19] = crc.toByte()
-        body.fill(0)
-        return result
+        try { return frame(0x0b, 1, body, sequence, timestampSeconds) } finally { body.fill(0) }
     }
+
+    /** Phone-sourced PB3 SEND, AUTH category, method 3 (auth_confirm); field 1 holds the sealed cipher. */
+    fun confirmFrame(cipher: ByteArray, sequence: Long, timestampSeconds: Long): ByteArray {
+        require(cipher.size in 1..MAX_BODY - 8)
+        val out = ByteArrayOutputStream()
+        varint(out, (1 shl 3 or 2).toLong()); varint(out, cipher.size.toLong()); out.write(cipher)
+        val body = out.toByteArray()
+        try { return frame(0x03, 3, body, sequence, timestampSeconds) } finally { body.fill(0) }
+    }
+
+    private fun frame(flags: Int, method: Int, body: ByteArray, sequence: Long, timestampSeconds: Long): ByteArray =
+        UCarFrameWriter.frame(flags, UCarFrameWriter.CATEGORY_AUTH, method, body, sequence, timestampSeconds)
 
     class Response internal constructor(val version: Int?, val authPoint: ByteArray?, val proof: ByteArray?,
         val agreementPoint: ByteArray?, val agreementSignature: ByteArray?, val nonce: ByteArray?,
