@@ -932,3 +932,45 @@ no siguió el enlace simbólico y no devolvió archivos; se localizó (18) en Do
 Build repetido después de mejorar limpieza del PIN, detalle GATT y test JCA.
 No hubo prueba remota en el vehículo; no corresponde repetir la prueba sólo por
 el negociador offline. Commit a main autorizado, TXT y APK originales privados.
+
+## 0.15 — solicitud AUTH experimental — 2026-10-30
+
+Diagnóstico (19) de 0.14, 7952 bytes, SHA-256
+`6faf90284d5447679f63758aaa92bc32d96591bd936ea63e221eec19a0e4585a`,
+recuperado a private/vehicle-tests-2026-10-30/. Dos intentos BLE confirmados y
+dos grupos P2P, con duraciones 18,890490 y 18,776853 s. Primera prueba TCP AUTH
+OPEN P2P_SOURCE, 59 ms, sin payload. Causas de desconexión desconocidas; no hay
+sesión confirmada. Cronología, fuentes, condiciones y límites en
+protocol-research/AUTH_EXCHANGE_015.md.
+
+Tras seleccionar P2P conectado, el propietario puede solicitar y confirmar
+AUTH experimental con el código actual. Una solicitud basada en observaciones
+Samsung/Xiaomi usa claves efímeras propias, identidad propia, HMAC y firma;
+workModes=0 porque no hay modos de proyección implementados. Se liga a Network
+o a la dirección local inequívoca del grupo y se dirige a propietario/puerto
+observado. Un intento con límite total 8 s; descarta buffers y no registra PIN,
+claves, direcciones ni contenido. Respuesta con tamaño, CRC, tipo y secuencia
+validados; HMAC/firma verificados. Resultado sólo informa pruebas de respuesta:
+ECDH, confirmación de sesión, medios y proyección siguen sin implementar.
+La solicitud puede fallar o cerrar el enlace; UI expresa consentimiento y límite.
+No se contactó el vehículo desde el ordenador ni se ejecutaron APK originales.
+
+Validación: 6 Python, 77 JVM (9 core, 56 protocolo, 4 Bluetooth, 8 Wi-Fi) y
+18 Android: 101 correctas. Servidor loopback independiente valida HMAC/firma
+de solicitud y genera respuesta con protobuf Google; PIN simulado incorrecto,
+fallo de bind y limpieza verificados. Android OK (18 tests), 11,323 s; metadata
+ANDROID_ANONYMIZED. Build/lint correctos, 0 errores/11 advertencias. Logs privados:
+artifacts/reports/android-build-0.15-fixed.log, android-ui-build-0.15-fixed2.log,
+private/ui-tests-0.15-fixed2.txt. JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20,
+SDK/build-tools 35, Python 3.14.2, ADB 37.0.0; apksigner verify correcto.
+
+Las dos primeras instrumentaciones fallaron una aserción de visibilidad de la
+casilla anterior tras usar el nuevo diálogo. Se cerró el diálogo del fixture y
+se hizo scroll explícito antes de exigir visibilidad; la tercera pasó todo.
+Los logs fallidos se conservan. Se repitió el build después de reforzar limpieza
+de buffers y clasificar resultados del receptor, y sólo se instaló tras build.
+APK 0.15.0-research, versionCode 15, 24 739 599 bytes; SHA-256
+`022902c854282b78474ca2001f44d73b26084569e2bddc56a550538765527627`.
+Instalación ADB Success, versión confirmada; paquete de tests retirado;
+MainActivity COLD/Status ok 470 ms, cero FATAL en UID propio. Prueba real AUTH
+pendiente del propietario; commit a main autorizado. TXT y originales privados.

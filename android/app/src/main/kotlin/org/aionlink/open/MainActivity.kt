@@ -72,7 +72,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private val backgroundExpiry = Runnable { stopAll("Tiempo máximo del enlace en segundo plano agotado (50 s)") }
     private val prepareExpiry = Runnable { cancelPrepared("La preparaci\u00f3n para introducir el c\u00f3digo caduc\u00f3") }
     private fun operationBusy() = bootstrap.state.value.busy || network.state.value.busy || usb.state.value.busy ||
-        network.authProbe.value.busy ||
+        network.authProbe.value.busy || network.authExchange.value.busy ||
         gatt.state.value.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     fun captureExport(): Boolean {
         if (operationBusy()) { event("Exportaci\u00f3n aplazada: espera el resultado o pulsa Detener"); return false }
@@ -194,8 +194,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         } else stopAll("Activity en segundo plano (puede incluir selector de archivos o cambio de app)")
     }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
+    fun sendExperimentalAuth(pin: String) {
+        val preferences = getApplication<Application>().getSharedPreferences("own-client", 0)
+        val id = preferences.getString("id", null)
+        if (id == null) { event("No hay identidad local del intento; solicitud AUTH no iniciada"); return }
+        network.startAuthExchange(pin.toByteArray(Charsets.US_ASCII), id.toByteArray(Charsets.US_ASCII), Build.MODEL)
+    }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.14.0-research")
+        appendLine("AionLink Open 0.15.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -226,6 +232,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("Red: ${network.state.value.stage}; modo=${network.state.value.mode}; ${network.state.value.message}")
         appendLine("Prueba TCP AUTH: ${network.authProbe.value.stage}; resultado=${network.authProbe.value.detail}; duración ms=${network.authProbe.value.elapsedMs}; sin payload")
         appendLine("Pruebas TCP AUTH en este proceso: ${network.authProbeCount}; último resultado conservado=${network.lastAuthProbe?.detail ?: "ninguno"}; duración ms=${network.lastAuthProbe?.elapsedMs}")
+        appendLine("Solicitud AUTH experimental: ${network.authExchange.value.stage}; ${network.authExchange.value.detail}; sesión no confirmada")
         appendLine("PIN, MAC, SSID, PSK y contenido ServerInfo omitidos. Red conectada no implica autenticaci\u00f3n ICCOA.")
         val cable = usb.state.value
         appendLine("USB: etapa=${cable.stage}; accesorios=${cable.accessories.size}; dispositivos en modo host=${cable.hostDevices}; alimentación reportada USB=${cable.usbPower}")
@@ -250,6 +257,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         } }
         viewModelScope.launch { network.authProbe.collect {
             event("Prueba TCP AUTH: ${it.stage}; ${it.detail}; duración ms=${it.elapsedMs}; sin payload ni sesión ICCOA")
+        } }
+        viewModelScope.launch { network.authExchange.collect {
+            event("Solicitud AUTH experimental: ${it.stage}; ${it.detail}; sesión no confirmada")
         } }
         viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
@@ -279,7 +289,8 @@ class MainActivity : ComponentActivity() {
     val negotiation by model.bootstrap.state.collectAsStateWithLifecycle()
     val network by model.network.state.collectAsStateWithLifecycle()
     val authProbe by model.network.authProbe.collectAsStateWithLifecycle()
-    val operationBusy = negotiation.busy || network.busy || authProbe.busy || cable.busy || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
+    val authExchange by model.network.authExchange.collectAsStateWithLifecycle()
+    val operationBusy = negotiation.busy || network.busy || authProbe.busy || authExchange.busy || cable.busy || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     val gattBusy = negotiation.busy || network.busy || network.stage == NetworkStage.CONNECTED || inspection.stage in setOf(GattStage.CONNECTING, GattStage.LINK_CONNECTED, GattStage.DISCOVERING_SERVICES)
     var showOthers by remember { mutableStateOf(false) }
     val candidates = devices.filter { it.recognizedServices.isNotEmpty() }
@@ -291,6 +302,7 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(connectionNotice) { scroll.animateScrollTo(0) }
     var pendingRead by remember { mutableStateOf<String?>(null) }
     var pendingAuthProbe by remember { mutableStateOf(false) }
+    var pendingAuthExchange by remember { mutableStateOf(false) }
     var authorizedConnect by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val networkPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val request = authorizedConnect; authorizedConnect = null
@@ -327,6 +339,8 @@ class MainActivity : ComponentActivity() {
         onConfirm = { pendingAuthProbe = false; model.network.probeAuthChannel() },
         onDismiss = { pendingAuthProbe = false }
     )
+    if (pendingAuthExchange) AuthExchangeDialog(onSubmit = { pin -> pendingAuthExchange = false; model.sendExperimentalAuth(pin) },
+        onDismiss = { pendingAuthExchange = false })
     pendingConnect?.let {
         ConnectionCodeDialog(codeReadiness, connectionNotice, onSubmit = model::submitPin,
             onClose = { model.cancelPrepared() })
@@ -354,14 +368,16 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.14.0")
+            Text("Cliente USB + Bluetooth experimental • v0.15.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
             if (network.stage == NetworkStage.CONNECTED && network.mode == org.aionlink.iccoa.NetworkMode.P2P) {
-                Button(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy) { Text("Comprobar canal AUTH") }
+                Button(onClick = { pendingAuthExchange = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Intentar AUTH experimental") }
+                OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Comprobar canal AUTH") }
             }
             Text("Canal AUTH: ${authProbe.stage} • ${authProbe.detail}")
+            Text("Solicitud AUTH: ${authExchange.stage} • ${authExchange.detail}")
             Text("Buscar receptor ICCOA", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { requestedIccoaOnly = true; if (model.discovery.hasPermissions()) model.scan() else permission.launch(model.discovery.requiredPermissions()) }, enabled = !scanning && !gattBusy, modifier = Modifier.fillMaxWidth()) { Text("Buscar ICCOA CarLink") }
             if (scanning) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Buscando durante 15 segundos...") }

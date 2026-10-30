@@ -205,3 +205,18 @@ PIN simulado distinto, firma alterada, campos faltantes y uso único. No hay
 derivación, confirmación ni handshake real. Dos tests Android adicionales comprueban
 generación local de solicitud con JCA y conservación del resumen AUTH al detener,
 sin solicitar red. No se probaron vehículo ni enlace AUTH criptográfico real.
+
+## Pruebas 0.15
+
+6 Python, 77 JVM (9 core, 56 protocolo, 4 Bluetooth, 8 Wi-Fi) y 18 Android:
+101 correctas. El servidor loopback propio valida HMAC y firma del cliente y
+responde con protobuf y pruebas criptográficas generadas independientemente;
+el cliente acepta prueba/firma válidas, rechaza PIN simulado distinto, limpia
+buffers y no conecta si falla bind. El diálogo exige seis dígitos y pulsación
+explícita. No se validan ECDH, confirmación, medios o vehículo real.
+
+La primera instrumentación y la repetición inicial fallaron una prueba anterior
+porque la casilla de consentimiento no estaba visible; el nuevo diálogo era
+cerrado correctamente pero el formulario anterior podía necesitar desplazamiento.
+El test ahora desplaza hasta la casilla antes de exigir visibilidad. Instrumentación
+completa posterior: OK (18 tests), 11,323 s. No se ocultó ni eliminó la prueba.

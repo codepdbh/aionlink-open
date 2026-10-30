@@ -60,7 +60,7 @@ class ConnectionCodeDialogTest {
             ConnectionCodeDialog(CodeReadiness.ANONYMIZED_EXPERIMENT, ANONYMIZED_EXPERIMENT_DETAIL,
                 { value, optedIn -> assertEquals("123456", value); assertTrue(optedIn); sends++ }, {})
         } }
-        compose.onNodeWithTag("anonymous-consent").assertIsDisplayed()
+        compose.onNodeWithTag("anonymous-consent").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("connection-code").performTextInput("123456")
         compose.onNodeWithTag("submit-code").assertIsNotEnabled()
         compose.onNodeWithTag("anonymous-consent").performScrollTo().assertIsOff().performClick()

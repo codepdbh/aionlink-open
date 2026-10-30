@@ -54,7 +54,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Enlace BLE | Inspección UnionShare completada en dos intentos del propietario | No equivale a sesión ICCOA |
 | Intercambio BLE + red | ClientInfo consentido, respuesta BLE y P2P/AP según receptor | Red P2P y apertura TCP AUTH observadas; autenticación pendiente |
 | USB + Bluetooth | Detección AOA, permiso, apertura y canales USB iniciales opcionales | Implementado en 0.4; autenticación y AION pendientes |
-| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.14 conserva último resultado AUTH y detalla etapa del error GATT; no autentica |
+| Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.15 añade solicitud AUTH experimental y verifica prueba/firma; sesión pendiente |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
 | Sesión y proyección | Negociación, audio, vídeo y control | Pendientes |
@@ -200,6 +200,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Investigación ICCOA](docs/protocol-research/ICCOA_RESEARCH.md) | Evidencias estáticas y modelo provisional |
 | [Canal de autenticación](docs/protocol-research/AUTH_CHANNEL_011.md) | Evidencia estática, limitaciones y siguientes pasos |
 | [Diagnóstico AUTH 0.12](docs/protocol-research/AUTH_PROBE_012.md) | Prueba TCP opcional, límites y significado |
+| [Solicitud AUTH 0.15](docs/protocol-research/AUTH_EXCHANGE_015.md) | Solicitud experimental, consentimiento y límites |
 | [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |

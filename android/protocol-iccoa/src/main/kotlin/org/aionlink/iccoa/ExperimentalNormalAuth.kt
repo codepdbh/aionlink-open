@@ -49,7 +49,7 @@ class ExperimentalNormalAuth(pinInput: ByteArray, clientId: ByteArray, model: St
     fun verify(response: ExperimentalAuthWire.Response): PeerCheck {
         check(issued && pin != null) { "Attempt unavailable" }
         try {
-            if (response.version != 1793 || response.result != 0) return PeerCheck.BAD_VERSION_OR_RESULT
+            if (response.version != 1793 || (response.result ?: 0) != 0) return PeerCheck.BAD_VERSION_OR_RESULT
             val peerAuth = response.authPoint ?: return PeerCheck.MISSING_OR_INVALID_FIELDS
             val peerProof = response.proof ?: return PeerCheck.MISSING_OR_INVALID_FIELDS
             val peerAgreement = response.agreementPoint ?: return PeerCheck.MISSING_OR_INVALID_FIELDS

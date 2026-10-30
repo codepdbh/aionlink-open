@@ -31,6 +31,9 @@ enum class AuthProbeStage { IDLE, RUNNING, FINISHED, UNAVAILABLE, CANCELLED }
 data class AuthProbeStatus(val stage: AuthProbeStage = AuthProbeStage.IDLE, val detail: String = "Sin comprobar", val elapsedMs: Long? = null) {
     val busy get() = stage == AuthProbeStage.RUNNING
 }
+data class AuthExchangeStatus(val stage: AuthProbeStage = AuthProbeStage.IDLE, val detail: String = "Sin iniciar") {
+    val busy get() = stage == AuthProbeStage.RUNNING
+}
 class LocalP2p(val platformAddress: PlatformP2pAddress, val supports5Ghz: Boolean) {
     val address get() = platformAddress.realValueOrNull()
     override fun toString() = "LocalP2p(redacted)"
@@ -59,6 +62,9 @@ class P2pConnector(context: Context) {
     private var verifiedEndpoint: VerifiedEndpoint? = null
     private var probeSocket: Socket? = null
     private var probeGeneration = 0
+    private var exchangeTimeout: Runnable? = null
+    private val mutableExchange = MutableStateFlow(AuthExchangeStatus())
+    val authExchange = mutableExchange.asStateFlow()
     private val mutableProbe = MutableStateFlow(AuthProbeStatus())
     val authProbe = mutableProbe.asStateFlow()
     var lastAuthProbe: AuthProbeStatus? = null
@@ -216,7 +222,7 @@ class P2pConnector(context: Context) {
     private fun disarm() { timeout?.let(handler::removeCallbacks); timeout = null }
     /** Explicit user action, restricted to the selected, verified P2P group. */
     fun probeAuthChannel() {
-        if (mutableProbe.value.busy) return
+        if (mutableProbe.value.busy || mutableExchange.value.busy) return
         authProbeCount++
         if (mutable.value.stage != NetworkStage.CONNECTED || mutable.value.mode != NetworkMode.P2P) {
             finishProbe(AuthProbeStatus(AuthProbeStage.UNAVAILABLE, "P2P del receptor no conectado"))
@@ -267,6 +273,53 @@ class P2pConnector(context: Context) {
             }
         }.apply { name = "AionLink-auth-check"; isDaemon = true; start() }
     }
+    /** Owner explicitly initiates one experimental AUTH request on the verified P2P group. */
+    fun startAuthExchange(pin: ByteArray, clientId: ByteArray, model: String) {
+        fun unavailable(detail: String) {
+            pin.fill(0); clientId.fill(0)
+            mutableExchange.value = AuthExchangeStatus(AuthProbeStage.UNAVAILABLE, detail)
+        }
+        if (mutableProbe.value.busy || mutableExchange.value.busy) { pin.fill(0); clientId.fill(0); return }
+        val endpoint = verifiedEndpoint
+        if (mutable.value.stage != NetworkStage.CONNECTED || mutable.value.mode != NetworkMode.P2P || endpoint == null) {
+            unavailable("Grupo P2P del receptor no disponible"); return
+        }
+        val service = connectivity ?: run { unavailable("Servicio de red no disponible"); return }
+        val matched = try {
+            @Suppress("DEPRECATION")
+            service.allNetworks.firstOrNull { service.getLinkProperties(it)?.interfaceName == endpoint.interfaceName }
+        } catch (_: SecurityException) { null }
+        val source = if (matched == null) try {
+            val addresses = NetworkInterface.getByName(endpoint.interfaceName)?.interfaceAddresses?.mapNotNull {
+                it.address?.let { address -> P2pSourceAddress.Candidate(address, it.networkPrefixLength.toInt()) }
+            } ?: emptyList()
+            P2pSourceAddress.select(endpoint.address, addresses)
+        } catch (_: java.net.SocketException) { null } catch (_: SecurityException) { null } else null
+        if (matched == null && source == null) { unavailable("Ruta P2P no disponible"); return }
+        val ticket = ++probeGeneration
+        val socket = Socket(); probeSocket = socket
+        val route = if (matched != null) "NETWORK" else "P2P_SOURCE"
+        mutableExchange.value = AuthExchangeStatus(AuthProbeStage.RUNNING, "Solicitud AUTH experimental; ruta=$route")
+        val deadline = Runnable {
+            if (ticket == probeGeneration && mutableExchange.value.busy) {
+                probeGeneration++
+                try { socket.close() } catch (_: java.io.IOException) { }
+                probeSocket = null; exchangeTimeout = null
+                mutableExchange.value = AuthExchangeStatus(AuthProbeStage.FINISHED, "TIMEOUT_TOTAL; ruta=$route")
+            }
+        }
+        exchangeTimeout = deadline; handler.postDelayed(deadline, 8000)
+        Thread {
+            val result = ExperimentalAuthExchange.run(socket, endpoint.address, 57209, pin, clientId, model) {
+                if (matched != null) matched.bindSocket(it) else it.bind(InetSocketAddress(source!!, 0))
+            }
+            handler.post {
+                if (ticket != probeGeneration) return@post
+                handler.removeCallbacks(deadline); exchangeTimeout = null; probeSocket = null
+                mutableExchange.value = AuthExchangeStatus(AuthProbeStage.FINISHED, "$result; ruta=$route; sesión no confirmada")
+            }
+        }.apply { name = "AionLink-auth-request"; isDaemon = true; start() }
+    }
     private fun fail(message: String) { release(); publish(NetworkStage.ERROR, message) }
     fun stop(reason: String = "Preparación/red de AionLink detenida") {
         val wasActive = mutable.value.stage !in setOf(NetworkStage.IDLE, NetworkStage.ERROR, NetworkStage.CANCELLED)
@@ -276,9 +329,11 @@ class P2pConnector(context: Context) {
     private fun release() {
         generation++
         probeGeneration++
+        exchangeTimeout?.let(handler::removeCallbacks); exchangeTimeout = null
         try { probeSocket?.close() } catch (_: java.io.IOException) { }
         probeSocket = null
         if (mutableProbe.value.busy) finishProbe(AuthProbeStatus(AuthProbeStage.CANCELLED, "La red o el intento se detuvo"))
+        if (mutableExchange.value.busy) mutableExchange.value = AuthExchangeStatus(AuthProbeStage.CANCELLED, "La red o el intento se detuvo")
         verifiedEndpoint = null
         disarm()
         val callback = apCallback; apCallback = null; apNetwork = null
