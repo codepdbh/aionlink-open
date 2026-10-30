@@ -68,6 +68,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private class Prepared(val peerId: String, val local: LocalP2p)
     private var prepared: Prepared? = null
     private var attemptNumber = 0
+    private val pendingAutoPin = PendingAuthCode()
+    private val autoAuthExpiry = Runnable { clearAutoAuth("AUTH automático caducó antes de conectar") }
+    private fun clearAutoAuth(reason: String? = null) {
+        prepareHandler.removeCallbacks(autoAuthExpiry)
+        if (!pendingAutoPin.clear()) return
+        if (reason != null) event(reason)
+    }
     private val prepareHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val backgroundExpiry = Runnable { stopAll("Tiempo máximo del enlace en segundo plano agotado (50 s)") }
     private val prepareExpiry = Runnable { cancelPrepared("La preparaci\u00f3n para introducir el c\u00f3digo caduc\u00f3") }
@@ -82,7 +89,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
     fun consumeExport() = exportCapture.consume()
     fun scan(iccoaOnly: Boolean = true) {
-        cancelPrepared(); gatt.cancel(); bootstrap.cancel("Nueva b\u00fasqueda"); network.stop("Nueva b\u00fasqueda")
+        clearAutoAuth("AUTH automático cancelado por nueva búsqueda"); cancelPrepared(); gatt.cancel(); bootstrap.cancel("Nueva b\u00fasqueda"); network.stop("Nueva b\u00fasqueda")
         discovery.stop()
         session.startDiscovery(); event("Modo: ${if (iccoaOnly) "ICCOA FCFB" else "general Classic/BLE"}"); event("Descubrimiento Bluetooth solicitado por el usuario")
         discovery.start(iccoaOnly) { error ->
@@ -93,6 +100,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     fun stop() { stopAll("Detenido por el usuario") }
     private fun stopAll(reason: String) {
         prepareHandler.removeCallbacks(backgroundExpiry)
+        clearAutoAuth("AUTH automático cancelado: $reason")
         cancelPrepared(reason); discovery.stop(); gatt.cancel(); bootstrap.cancel(reason); network.stop(reason)
         usb.stop(); session.disconnect(); event(reason)
     }
@@ -152,7 +160,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (existed || hadDialog) network.stop(reason)
         if (existed || wasPreparing) { mutableConnectionNotice.value = reason; event(reason) }
     }
-    fun submitPin(pin: String, consentToAnonymized: Boolean) {
+    fun submitPin(pin: String, consentToAnonymized: Boolean, automaticAuth: Boolean) {
         val request = prepared ?: return
         val disclosure = request.local.platformAddress.disclosure
         val permitted = disclosure == AddressDisclosure.AVAILABLE && mutableCodeReadiness.value == CodeReadiness.READY ||
@@ -174,12 +182,19 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             mutableConnectionNotice.value = "Intentando ClientInfo normal; espera confirmaci\u00f3n de escritura"
             event("Identidad local=$disclosure; consentimiento experimental=$consentToAnonymized; sin valor de direcci\u00f3n")
             event("PIN entregado al intercambio normal; valor omitido, env\u00edo todav\u00eda sin confirmar")
+            if (automaticAuth) {
+                clearAutoAuth()
+                pendingAutoPin.set(pin.toByteArray(Charsets.US_ASCII))
+                prepareHandler.postDelayed(autoAuthExpiry, 60000)
+                event("AUTH automático autorizado para este intento; esperando red P2P; código omitido")
+            }
             bootstrap.start(peer, hello) { info ->
                 mutableConnectionNotice.value = "Respuesta BLE recibida; red ${info.mode}; puerto=${info.portStatus}; autenticación pendiente"
                 event("ServerInfo recibido tras ClientInfo; solicitando red ${info.mode}; puerto=${info.portStatus}; rango=${info.portRange}")
                 network.connect(info)
             }
         } catch (_: IllegalArgumentException) {
+            clearAutoAuth("AUTH automático cancelado por datos inválidos")
             network.stop(); mutableConnectionNotice.value = "ClientInfo no v\u00e1lido; no se enviaron datos"
             event(mutableConnectionNotice.value)
         }
@@ -194,14 +209,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         } else stopAll("Activity en segundo plano (puede incluir selector de archivos o cambio de app)")
     }
     fun denied() { session.permissionDenied(); event("Permisos de descubrimiento denegados") }
-    fun sendExperimentalAuth(pin: String) {
+    fun sendExperimentalAuth(pin: String) = sendExperimentalAuthBytes(pin.toByteArray(Charsets.US_ASCII))
+    private fun sendExperimentalAuthBytes(pin: ByteArray) {
         val preferences = getApplication<Application>().getSharedPreferences("own-client", 0)
         val id = preferences.getString("id", null)
-        if (id == null) { event("No hay identidad local del intento; solicitud AUTH no iniciada"); return }
-        network.startAuthExchange(pin.toByteArray(Charsets.US_ASCII), id.toByteArray(Charsets.US_ASCII), Build.MODEL)
+        if (id == null) { pin.fill(0); event("No hay identidad local del intento; solicitud AUTH no iniciada"); return }
+        network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.15.0-research")
+        appendLine("AionLink Open 0.16.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -232,6 +248,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("Red: ${network.state.value.stage}; modo=${network.state.value.mode}; ${network.state.value.message}")
         appendLine("Prueba TCP AUTH: ${network.authProbe.value.stage}; resultado=${network.authProbe.value.detail}; duración ms=${network.authProbe.value.elapsedMs}; sin payload")
         appendLine("Pruebas TCP AUTH en este proceso: ${network.authProbeCount}; último resultado conservado=${network.lastAuthProbe?.detail ?: "ninguno"}; duración ms=${network.lastAuthProbe?.elapsedMs}")
+        appendLine("AUTH automático pendiente: ${pendingAutoPin.pending}; sólo este intento; código omitido")
         appendLine("Solicitud AUTH experimental: ${network.authExchange.value.stage}; ${network.authExchange.value.detail}; sesión no confirmada")
         appendLine("PIN, MAC, SSID, PSK y contenido ServerInfo omitidos. Red conectada no implica autenticaci\u00f3n ICCOA.")
         val cable = usb.state.value
@@ -245,10 +262,24 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     init {
         viewModelScope.launch { bootstrap.state.collect {
             event("Intercambio BLE: ${it.stage}; ${it.message}")
-            if (it.stage in setOf(org.aionlink.bluetooth.BootstrapStage.ERROR, org.aionlink.bluetooth.BootstrapStage.CANCELLED) && network.state.value.stage == NetworkStage.READY) network.stop()
+            if (it.stage in setOf(org.aionlink.bluetooth.BootstrapStage.ERROR, org.aionlink.bluetooth.BootstrapStage.CANCELLED) && bootstrap.state.value == it) {
+                clearAutoAuth("AUTH automático cancelado por fin de intercambio BLE")
+                if (network.state.value.stage == NetworkStage.READY) network.stop()
+            }
         } }
         viewModelScope.launch { network.state.collect {
             event("Red: ${it.stage}; ${it.message}")
+            if (network.state.value == it && pendingAutoPin.pending) {
+                if (it.stage == NetworkStage.CONNECTED && it.mode == org.aionlink.iccoa.NetworkMode.P2P) {
+                    val pin = pendingAutoPin.take() ?: return@collect
+                    prepareHandler.removeCallbacks(autoAuthExpiry)
+                    event("Red P2P lista; iniciando AUTH automático autorizado para el intento #$attemptNumber")
+                    sendExperimentalAuthBytes(pin)
+                } else if (it.stage in setOf(NetworkStage.ERROR, NetworkStage.CANCELLED) ||
+                    (it.stage == NetworkStage.CONNECTED && it.mode != org.aionlink.iccoa.NetworkMode.P2P)) {
+                    clearAutoAuth("AUTH automático cancelado: red P2P no disponible")
+                }
+            }
             if (it.stage == NetworkStage.ERROR && mutablePinRequest.value != null) {
                 prepareHandler.removeCallbacks(prepareExpiry); prepared = null
                 mutableCodeReadiness.value = CodeReadiness.BLOCKED
@@ -368,13 +399,13 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.15.0")
+            Text("Cliente USB + Bluetooth experimental • v0.16.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
             if (network.stage == NetworkStage.CONNECTED && network.mode == org.aionlink.iccoa.NetworkMode.P2P) {
                 Button(onClick = { pendingAuthExchange = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Intentar AUTH experimental") }
-                OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Comprobar canal AUTH") }
+                OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Solo comprobar puerto (sin autenticación)") }
             }
             Text("Canal AUTH: ${authProbe.stage} • ${authProbe.detail}")
             Text("Solicitud AUTH: ${authExchange.stage} • ${authExchange.detail}")

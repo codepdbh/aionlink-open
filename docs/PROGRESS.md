@@ -974,3 +974,38 @@ APK 0.15.0-research, versionCode 15, 24 739 599 bytes; SHA-256
 Instalación ADB Success, versión confirmada; paquete de tests retirado;
 MainActivity COLD/Status ok 470 ms, cero FATAL en UID propio. Prueba real AUTH
 pendiente del propietario; commit a main autorizado. TXT y originales privados.
+
+## 0.16 - diagnostico 0.15 e inicio AUTH automatico - 2026-10-30
+
+Diagnostico (20), 5351 bytes, SHA-256
+`1e9fbaa2703d8855c856380cfce04861faab63799631c440d2a2567c0f1ea7c7`,
+conservado en private/vehicle-tests-2026-10-30/. ClientInfo confirmado,
+ServerInfo P2P con port ZERO, grupo conectado y prueba TCP sin payload OPEN
+P2P_SOURCE en 61 ms. AUTH experimental quedo IDLE; exportacion con red todavia
+conectada. No se conoce la causa del 40%, ni se ha verificado sesion. Cronologia
+y limites en protocol-research/AUTH_AUTO_016.md.
+
+El formulario ofrece autorizacion opcional, desmarcada inicialmente, para un
+solo AUTH experimental automatico al conectar P2P del intento, usando el mismo
+codigo. La copia mutable se elimina al cancelar, fallar o tras 60 s, o se
+transfiere al intercambio que la limpia; Android puede retener Strings temporales.
+La prueba TCP ahora se distingue como sin autenticacion. El resultado real y la
+interoperabilidad estan pendientes; la app todavia no deriva ni confirma una
+sesion, ni implementa medios. No se inicio conexion con el coche desde el PC.
+
+Validacion: 6 Python, 77 JVM (9 core, 56 protocolo, 4 Bluetooth, 8 Wi-Fi) y
+20 instrumentadas Android = 103 correctas; pruebas UI de consentimiento y
+limpieza de almacenamiento temporal. Android OK (20 tests), 13,03 s; dato
+local ANDROID_ANONYMIZED. Build y lint correctos, 0 errores/11 advertencias.
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python
+3.14.2, ADB 37.0.0. Logs: artifacts/reports/android-build-0.16-final2.log,
+android-ui-build-0.16.log y private/ui-tests-0.16.txt. El primer comando Python
+discover apunto a tests/ y ejecuto cero pruebas; se corrigio a tests/unit.
+La compilacion se repitio tras cambios del codigo y correccion de caracteres.
+Apksigner verify correcto, con avisos de acceso nativo restringido del JDK.
+
+APK 0.16.0-research, versionCode 16, 24 915 255 bytes; SHA-256
+`23fe857969e3ee0cf3eee694e247a69ae85f13076b29627c89250ff58595a498`.
+Instalacion ADB Success; paquete de tests retirado, MainActivity COLD/Status ok,
+504 ms. Prueba de coche queda a cargo del propietario estacionado. Diagnosticos
+y APK originales permanecen privados; commit a main autorizado previamente.

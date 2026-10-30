@@ -3,7 +3,7 @@ android {
     namespace = "org.aionlink.open"; compileSdk = 35
     defaultConfig {
         applicationId = "org.aionlink.open"; minSdk = 29; targetSdk = 35
-        versionCode = 15; versionName = "0.15.0-research"
+        versionCode = 16; versionName = "0.16.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

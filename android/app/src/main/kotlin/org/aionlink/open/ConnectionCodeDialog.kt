@@ -19,11 +19,12 @@ const val ANONYMIZED_EXPERIMENT_DETAIL = "Android mantiene oculta la dirección 
 
 /** Visible even when preflight is blocked. Entering a code never means it was transmitted. */
 @Composable
-fun ConnectionCodeDialog(readiness: CodeReadiness, detail: String, onSubmit: (String, Boolean) -> Unit, onClose: () -> Unit) {
+fun ConnectionCodeDialog(readiness: CodeReadiness, detail: String, onSubmit: (String, Boolean, Boolean) -> Unit, onClose: () -> Unit) {
     var code by remember { mutableStateOf("") }
     var consent by remember { mutableStateOf(false) }
+    var autoAuth by remember { mutableStateOf(false) }
     val experimental = readiness == CodeReadiness.ANONYMIZED_EXPERIMENT
-    fun close() { code = ""; consent = false; onClose() }
+    fun close() { code = ""; consent = false; autoAuth = false; onClose() }
     AlertDialog(onDismissRequest = ::close,
         title = { Text("Conectar con mi ICCOA") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -36,6 +37,10 @@ fun ConnectionCodeDialog(readiness: CodeReadiness, detail: String, onSubmit: (St
                     Checkbox(checked = consent, onCheckedChange = { consent = it }, modifier = Modifier.testTag("anonymous-consent"))
                     Text("Autorizo esta prueba con mi vehículo")
                 }
+            }
+            Row {
+                Checkbox(checked = autoAuth, onCheckedChange = { autoAuth = it }, modifier = Modifier.testTag("auto-auth-consent"))
+                Text("Autorizar una solicitud AUTH experimental automática cuando conecte Wi-Fi Direct. El código se mantiene temporalmente en memoria; puede fallar o desconectar. Aún no hay proyección.")
             }
             OutlinedTextField(value = code,
                 onValueChange = { code = it.filter { c -> c in '0'..'9' }.take(6) },
@@ -50,8 +55,8 @@ fun ConnectionCodeDialog(readiness: CodeReadiness, detail: String, onSubmit: (St
         } },
         confirmButton = { TextButton(enabled = (readiness == CodeReadiness.READY || experimental && consent) && code.length == 6,
             modifier = Modifier.testTag("submit-code"), onClick = {
-                val submitted = code; val optedIn = experimental && consent
-                code = ""; consent = false; onSubmit(submitted, optedIn)
+                val submitted = code; val optedIn = experimental && consent; val automatic = autoAuth
+                code = ""; consent = false; autoAuth = false; onSubmit(submitted, optedIn, automatic)
             }) { Text(if (experimental) "Probar conexión experimental" else "Enviar a mi receptor") } },
         dismissButton = { TextButton(onClick = ::close, modifier = Modifier.testTag("close-code")) { Text("Cerrar") } })
 }
