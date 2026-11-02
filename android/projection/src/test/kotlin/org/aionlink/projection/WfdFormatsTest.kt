@@ -21,8 +21,11 @@ class WfdFormatsTest {
         assertFalse(WfdFormats.sinkSupportsUibc("none")); assertFalse(WfdFormats.sinkSupportsUibc(null))
         assertEquals("AAC 00000001 00", WfdFormats.chooseAudio("AAC 0000000f 00"))
         assertNull(WfdFormats.chooseAudio("none"))
-        assertEquals(19000, WfdFormats.clientRtpPort("RTP/AVP/UDP;unicast 19000 0 mode=play"))
-        assertNull(WfdFormats.clientRtpPort("RTP/AVP/TCP;interleaved 0 0 mode=play"))
+        assertEquals(WfdClientRtp(19000, false), WfdFormats.clientRtpPorts("RTP/AVP/UDP;unicast 19000 0 mode=play"))
+        assertEquals(WfdClientRtp(19000, true), WfdFormats.clientRtpPorts("RTP/AVP/TCP;unicast 19000 0 mode=play"))
+        assertNull(WfdFormats.clientRtpPorts("RTP/AVP/TCP;interleaved mode=play"))
+        assertNull(WfdFormats.clientRtpPorts("RTP/AVP/TCP;unicast 70000 0 mode=play"))
+        assertNull(WfdFormats.clientRtpPorts(null))
         assertEquals("1920x720", WfdFormats.safeExcerpt("1920x720\u0000"))
     }
 }

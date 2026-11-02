@@ -57,7 +57,7 @@ Galaxy S25 Ultra  →  AionLink Open  →  Receptor ICCOA  →  AION i60
 | Diagnóstico | Estado, permisos, eventos y exportación sin nombres ni MAC | 0.16 añade solicitud AUTH experimental y verifica prueba/firma; sesión pendiente |
 | Análisis local | Hashes, firmas públicas, manifiestos, componentes, DEX y bibliotecas | Ejecutado sobre seis APK, incluidas dos versiones Samsung |
 | Investigación ICCOA | Rutas estáticas BLE, Wi-Fi P2P, autenticación y JNI localizadas | Sin validación con receptor real |
-| Sesión y proyección | AUTH completo, CONTROL cifrado, RTSP Wi-Fi Display y vídeo H.264 (0.18) | Implementado sin verificar en el AION; táctil y audio AAC desde 0.19 |
+| Sesión y proyección | AUTH completo, CONTROL cifrado, RTSP Wi-Fi Display y vídeo H.264 (0.18) | Implementado sin verificar en el AION; táctil y audio AAC desde 0.19; RTP sobre TCP desde 0.20 |
 
 **Validación:** consultar [pruebas](docs/TESTING.md) y [progreso](docs/PROGRESS.md)
 para los resultados de cada versión. Los tests verifican componentes propios,
@@ -204,6 +204,8 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [AUTH 0.17](docs/protocol-research/AUTH_CONFIRM_017.md) | Secuencia, workModes, derivación de sesión y AuthConfirm |
 | [Proyección 0.18](docs/protocol-research/PROJECTION_018.md) | CONTROL cifrado, fuente Wi-Fi Display, TS/RTP y captura |
 | [Táctil y audio 0.19](docs/protocol-research/TOUCH_AUDIO_019.md) | UIBC por accesibilidad, audio AAC en el flujo, MEDIA/SENSOR |
+| [RTP sobre TCP 0.20](docs/protocol-research/RTP_TCP_020.md) | Bloqueo en M3, sink del coche y significado del 80 % |
+| [Desconexión del coche 0.21](docs/protocol-research/CAR_DISCONNECT_021.md) | Método 23 con vídeo en curso e hipótesis descartadas |
 | [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |

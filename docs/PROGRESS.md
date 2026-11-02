@@ -1110,3 +1110,100 @@ APK 0.19.0-research, versionCode 19, 24 827 625 bytes, SHA-256
 Instalacion ADB Success; paquete de tests retirado; MainActivity COLD/Status ok
 364 ms; cero FATAL; dumpsys accessibility lista TouchInjectionService como
 servicio instalado (no activado). Prueba en coche pendiente del propietario.
+
+## 0.20 - RTP sobre TCP tras bloqueo local en M3 - 2026-11-02
+
+Diagnosticos de 0.19 copiados a private/vehicle-tests-2026-11-02/: (21), 5254
+bytes, SHA-256 `66eb9e09fab2fe43ae866c1cf9dc78dfdb3bcb1aaa7a708a74dd532ca5f74f47`
+(GATT 19 esperando ServerInfo) y (22), 15 640 bytes, SHA-256
+`0e54e0ce64e04dc64b48ae2378f8d0e7c6071e41c9688cdd863f6a880dab11a1`. En (22) AUTH
+verifica prueba y firma con resultado 0, CONTROL recibe heartbeats descifrados y
+RTSP llega a M3_UNSUPPORTED (puertoRTP=false); AionLink no envia M4 y el coche
+cierra a los ~10,07 s. El propietario informa 80 % y un mensaje de dispositivo no
+compatible, sin texto literal capturado. El logcat por UID salio vacio (0 bytes).
+
+Analisis estatico de MiAuto 0.1.1, cuyo sink ucarhusdk coincide en tres literales
+con lo reportado por el coche; misma familia es inferencia, no version confirmada.
+Ese sink elige RTP/AVP/TCP;unicast, escucha en client_port, enmarca con 16 bits de
+longitud y exige server_port par-impar. En su SDK 80 % = canales iniciados, 90 % =
+sink con video y hay temporizador de conexion de 10 s. Que el mensaje del coche
+derive de ese temporizador es hipotesis. Detalle y direcciones en
+protocol-research/RTP_TCP_020.md. El valor real de wfd_client_rtp_ports no consta
+en 0.19 y ahora se exporta. Sesion y proyeccion siguen sin verificar en el AION.
+
+Implementado: transporte TCP unicast, conexion al coche en SETUP, enmarcado,
+server_port siempre en par y diagnostico ampliado. Interleaved no implementado.
+
+Validacion: 6 Python y 95 JVM (9 core, 59 protocolo, 13 proyeccion, 4 Bluetooth,
+10 Wi-Fi) correctas; las 3 nuevas de WfdSource usan sink sintetico por loopback.
+Build y lint correctos, 0 errores/10 advertencias. Log:
+artifacts/reports/android-build-0.20.log. Instrumentadas Android no ejecutadas.
+Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, JBR de Android Studio, Python 3.14, ADB
+37.0.0; apktool 3.0.3 y JADX 1.5.6 con SHA-256 verificado; capstone 5.0.3 y
+pyelftools 0.31 solo en el scratchpad de la sesion. Gradle instalo automaticamente
+SDK Platform 35 y Build-Tools 35.0.0.
+
+APK 0.20.0-research, versionCode 20, 24 844 005 bytes, SHA-256
+`44e804872e6e3544d5d99b42fe751c3e8b3919cb853f3fad59ff658719bf0698`, certificado
+debug `e1092cde24dac3e15ebb0cafb70378157de13d5c8dfc696b12f4fed0479fc573`.
+
+Incidencias: ADB aparecio unauthorized hasta que el propietario autorizo. El primer
+escaneo de cadenas con regex se detuvo por lento y se sustituyo por busqueda directa.
+Dos llamadas al listado de ensamblado fallaron por faltar argumentos y se repitieron.
+JADX sobre MiAuto termino con 18 errores y salida parcial util (5183 clases). Esta
+copia es un ZIP sin .git, private/ ni artifacts/ anteriores. `adb install -r` fallo con
+INSTALL_FAILED_UPDATE_INCOMPATIBLE: la 0.19 instalada tiene otra clave debug. No se
+desinstalo sin autorizacion; instalacion y prueba en coche quedan pendientes.
+
+Actualizacion: el propietario autorizo desinstalar e instalar. Se reemplazo la 0.19;
+se perdieron permisos y accesibilidad de la app, y siguen los 23 TXT de Download.
+La verificacion en el S25 mostro v0.19.0 en pantalla: la version estaba fija en dos
+textos de MainActivity (uno en la cabecera del diagnostico) y en la cabecera RTSP
+Server, que aun decia 0.18. Se corrigieron y se repitio el ciclo.
+
+Binario final 0.20.0-research, versionCode 20, 25 146 880 bytes, SHA-256
+`de8bdf24422bd567794a8947bc7701f5e05c13b369d1712691ef1d898d4abf37`, sustituye al
+indicado arriba; mismo certificado debug y apksigner verify correcto. Validacion
+final: 6 Python, 95 JVM y 20 instrumentadas en el S25, OK (20 tests), 12,143 s; 121
+correctas. Build y lint correctos, 0 errores/10 advertencias. Logs:
+artifacts/reports/android-build-0.20-final.log, android-ui-build-0.20-final.log y
+private/ui-tests-0.20-final.txt. ADB install Success; paquete de tests retirado;
+MainActivity COLD/Status ok 285 ms; XML private/ui-0.20-final.xml con 25 nodos
+propios y v0.20.0; cero lineas en el buffer crash del UID propio. Ese buffer se habia
+vaciado con logcat -c antes de la primera apertura: afecto a todo el telefono y
+elimino trazas de crash retenidas de otras apps, contra la practica del colector.
+No se inicio busqueda, GATT, P2P ni AUTH; la prueba con el AION sigue pendiente.
+
+## 0.21 - Desconexion pedida por el coche con video en curso - 2026-11-02
+
+Diagnostico de 0.20 copiado a private/vehicle-tests-2026-11-02/: (23), 8182 bytes,
+SHA-256 `f7a100c48c4301f1398b86b96f4665c8eb10da8861fb870c08607b5c77329901`. Hardware:
+el receptor elige RTP/AVP/TCP;unicast, RTSP llega a PLAYING y el flujo TCP no falla
+(1159 unidades, 12 376 RTP, 1668 AAC a los 36 s). El propietario informa de un error
+en pantalla, sin texto capturado, y de que no se transmitio nada: no hay proyeccion
+ni sesion ICCOA verificada. CONTROL muestra dos metodos 23 (disconnect), que 0.20
+ignoraba; el logcat por UID volvio a salir vacio (0 bytes). Causa del error sin
+determinar. Detalle en protocol-research/CAR_DISCONNECT_021.md.
+
+JADX 1.5.6 sobre Samsung Auto 3.1.02.20 (SHA-256 `0f57eec4...f755`): 5816 archivos en
+extracted/, 44 errores de decompilacion, salida parcial util, exit 1. Sin ejecutar APK.
+
+Incidencias: primer Gradle fallo con JDK 25 (no admitido por Gradle 8.13) y despues por
+falta de SDK; resuelto con JAVA_HOME del JBR 21.0.10 de Android Studio y ANDROID_HOME,
+sin crear local.properties. :transport-usb:lintDebug da 2 errores NewApi previos en
+UsbAccessoryClient.kt:156 (Os.fcntlInt requiere API 30, minSdk 29), archivo no tocado y
+sin corregir: esa ruta USB fallaria en Android 10. El "lint correcto" de 0.20 solo
+cubria :app. Lint 0.21 de :app 0 errores/11 advertencias; :transport-wifi sin avisos.
+
+Binario 0.21.0-research, versionCode 21, 24 860 393 bytes, SHA-256
+`1aa90fa547181db411eaea7fd7a7d273b212df6073d5643b6b1c9a4d1d6cdbb5`, mismo certificado
+debug. Validacion: 98 JVM y 20 instrumentadas en el S25 (OK, 20 tests), con fixtures
+sinteticos. Instalacion con install -r: permisos y accesibilidad conservados; paquete
+de tests retirado; MainActivity COLD/Status ok 446 ms; v0.21.0 visible; cero lineas en
+el buffer crash del UID propio. Logs: artifacts/reports/android-build-0.21-final.log,
+android-ui-build-0.21.log y private/ui-tests-0.21.txt.
+
+Incompleto: la solicitud de configuracion (metodo 24) y la detencion por metodo 23 solo
+se probaron con coche sintetico. No se inicio busqueda, GATT, P2P ni AUTH; la prueba
+con el AION sigue pendiente. Commit a main pedido por el propietario; TXT, APK y
+extracted/ siguen privados.

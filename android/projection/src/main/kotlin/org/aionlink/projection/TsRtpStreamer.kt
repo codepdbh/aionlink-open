@@ -30,6 +30,15 @@ class TsRtpStreamer(
             return crc
         }
 
+        /** RTP over TCP unicast as read by the ANetworkSession datagram mode: 16-bit big-endian length, then the packet. */
+        fun tcpFrame(datagram: ByteArray): ByteArray {
+            require(datagram.size <= 0xFFFF)
+            val framed = ByteArray(datagram.size + 2)
+            framed[0] = (datagram.size ushr 8).toByte(); framed[1] = datagram.size.toByte()
+            System.arraycopy(datagram, 0, framed, 2, datagram.size)
+            return framed
+        }
+
         /** 7-byte ADTS header (no CRC) for AAC-LC; sampling index 3 = 48 kHz. */
         fun adtsHeader(payloadBytes: Int, samplingIndex: Int = 3, channels: Int = 2): ByteArray {
             val length = payloadBytes + 7

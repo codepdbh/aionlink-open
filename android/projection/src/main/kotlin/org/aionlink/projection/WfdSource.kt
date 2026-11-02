@@ -11,11 +11,13 @@ import java.net.ServerSocket
 import java.net.Socket
 
 /** Parameters agreed in M4 and confirmed by SETUP/PLAY. */
-data class WfdPlay(val sink: InetAddress, val rtpPort: Int, val mode: WfdVideoMode, val audioCodec: String?, val uibc: Boolean)
+data class WfdPlay(val sink: InetAddress, val rtpPort: Int, val mode: WfdVideoMode, val audioCodec: String?, val uibc: Boolean,
+                   val rtpTcp: Socket? = null)
 
 data class WfdStatus(val stage: String = "IDLE", val detail: String = "", val carDisplayMode: String = "ausente",
                      val sinkVideoFormats: String = "ausente", val sinkAudioCodecs: String = "ausente",
-                     val sinkUibc: String = "ausente")
+                     val sinkUibc: String = "ausente", val sinkRtpPorts: String = "ausente",
+                     val sinkOther: String = "ausente")
 
 /**
  * Independent Wi-Fi Display (Miracast) source RTSP session, following the public WFD message sequence
@@ -30,11 +32,14 @@ class WfdSource(
     private val onStatus: (WfdStatus) -> Unit,
     private val onPlay: (WfdPlay) -> Unit,
     private val onIdrRequest: () -> Unit = {},
-    private val onStop: (String) -> Unit = {}
+    private val onStop: (String) -> Unit = {},
+    private val onLog: (String) -> Unit = {}
 ) : AutoCloseable {
     companion object {
         const val RTSP_PORT = 7236
         const val RTP_SERVER_PORT = 15550
+        private const val RTP_TCP_CONNECT_MS = 2500
+        private const val MAX_SINK_LOG_LINES = 40
         val M3_PARAMETERS = listOf("wfd_video_formats", "wfd_audio_codecs", "wfd_client_rtp_ports",
             "wfd_uibc_capability", "wfd_car_display_mode")
     }
@@ -51,6 +56,7 @@ class WfdSource(
 
     @Volatile private var server: ServerSocket? = null
     @Volatile private var sink: Socket? = null
+    @Volatile private var rtpTcp: Socket? = null
     @Volatile private var closed = false
     private var cseq = 1
     private val pending = mutableMapOf<Int, String>()
@@ -61,6 +67,16 @@ class WfdSource(
     private var uibc = false
     private val sessionId = (java.security.SecureRandom().nextInt() and 0x7fffffff).coerceAtLeast(1)
     private var keepAlive: Thread? = null
+    private var sinkLogLines = 0
+
+    /** Method and parameter names only: values may describe the session and stay out of the export. */
+    private fun logSinkRequest(message: Message) {
+        if (sinkLogLines >= MAX_SINK_LOG_LINES) return
+        sinkLogLines++
+        // Bare lines count too: wfd_idr_request and GET_PARAMETER bodies carry no colon.
+        val names = message.body.lines().map { it.substringBefore(':').trim() }.filter { it.isNotEmpty() }
+        onLog("RTSP del receptor: ${message.method}; parámetros=${names.map(WfdFormats::safeExcerpt)}")
+    }
 
     private fun publish(stage: String, detail: String = "") { status = status.copy(stage = stage, detail = detail); onStatus(status) }
 
@@ -111,14 +127,17 @@ class WfdSource(
                 status = status.copy(carDisplayMode = WfdFormats.safeExcerpt(values["wfd_car_display_mode"]),
                     sinkVideoFormats = WfdFormats.safeExcerpt(values["wfd_video_formats"]),
                     sinkAudioCodecs = WfdFormats.safeExcerpt(values["wfd_audio_codecs"]),
-                    sinkUibc = WfdFormats.safeExcerpt(values["wfd_uibc_capability"]))
+                    sinkUibc = WfdFormats.safeExcerpt(values["wfd_uibc_capability"]),
+                    sinkRtpPorts = WfdFormats.safeExcerpt(values["wfd_client_rtp_ports"]),
+                    sinkOther = WfdFormats.safeExcerpt(values.filterKeys { it !in M3_PARAMETERS && it != "wfd_presentation_URL" }
+                        .entries.joinToString("; ") { "${it.key}=${it.value}" }))
                 val video = WfdFormats.chooseVideo(values["wfd_video_formats"])
-                val rtp = WfdFormats.clientRtpPort(values["wfd_client_rtp_ports"])
+                val rtp = WfdFormats.clientRtpPorts(values["wfd_client_rtp_ports"])
                 if (video == null || rtp == null) {
                     publish("M3_UNSUPPORTED", "vídeo=${video != null}; puertoRTP=${rtp != null}"); return
                 }
-                mode = video; clientPort = rtp
-                publish("M3_OK", "modo=${video.width}x${video.height}p${video.fps}")
+                mode = video; clientPort = rtp.port
+                publish("M3_OK", "modo=${video.width}x${video.height}p${video.fps}; transporte=${if (rtp.tcp) "TCP" else "UDP"}")
                 val body = buildString {
                     append("wfd_video_formats: ").append(video.m4Value()).append("\r\n")
                     audioCodec = WfdFormats.chooseAudio(values["wfd_audio_codecs"])
@@ -137,12 +156,13 @@ class WfdSource(
                     "wfd_trigger_method: SETUP\r\n", "M5")
             }
             "M5" -> publish(if (ok) "M5_OK" else "M5_REJECTED", "status=${message.status}")
-            "KEEPALIVE" -> Unit
+            "KEEPALIVE" -> onLog("RTSP keepalive: status=${message.status}")
         }
     }
 
     private fun onRequest(output: OutputStream, socket: Socket, message: Message) {
         val seq = message.cseq ?: throw IllegalArgumentException("Missing CSeq")
+        logSinkRequest(message)
         when (message.method) {
             "OPTIONS" -> {
                 respond(output, seq, listOf("Public: org.wfa.wfd1.0, SETUP, TEARDOWN, PLAY, PAUSE, GET_PARAMETER, SET_PARAMETER"))
@@ -152,23 +172,32 @@ class WfdSource(
             }
             "SETUP" -> {
                 val transport = message.headers["transport"] ?: ""
+                if (transport.contains("interleaved")) {
+                    publish("M6_UNSUPPORTED", "interleaved"); respond(output, seq, emptyList(), 461, "Unsupported Transport"); return
+                }
                 val ports = Regex("client_port=(\\d+)(?:-(\\d+))?").find(transport)
                 val rtp = ports?.groupValues?.get(1)?.toIntOrNull() ?: clientPort
                 if (rtp == null || mode == null) { respond(output, seq, emptyList(), 400, "Bad Request"); return }
                 clientPort = rtp
                 val rtcp = ports?.groupValues?.getOrNull(2)?.takeIf { it.isNotEmpty() }
                 val clientPart = if (rtcp != null) "$rtp-$rtcp" else "$rtp"
-                val serverPart = if (rtcp != null) "$rtpServerPort-${rtpServerPort + 1}" else "$rtpServerPort"
+                val tcp = transport.startsWith("RTP/AVP/TCP")
+                // The sink listens before sending SETUP; AOSP-derived sources connect to it while handling SETUP.
+                if (tcp && !connectRtpTcp(socket.inetAddress, rtp)) {
+                    publish("M6_TCP_FAILED", "puertoRTP=$rtp"); respond(output, seq, emptyList(), 500, "Internal Server Error"); return
+                }
+                val profile = if (tcp) "TCP" else "UDP"
+                // MiAuto's sink rejects anything other than server_port=<even>-<even+1>, whatever client_port had.
                 respond(output, seq, listOf("Session: $sessionId;timeout=30",
-                    "Transport: RTP/AVP/UDP;unicast;client_port=$clientPart;server_port=$serverPart"))
-                publish("M6_SETUP", "puertoRTP=$rtp")
+                    "Transport: RTP/AVP/$profile;unicast;client_port=$clientPart;server_port=$rtpServerPort-${rtpServerPort + 1}"))
+                publish("M6_SETUP", "puertoRTP=$rtp; transporte=$profile")
             }
             "PLAY" -> {
                 respond(output, seq, listOf("Session: $sessionId", "Range: npt=now-"))
                 val chosen = mode; val rtp = clientPort
                 if (chosen != null && rtp != null) {
                     publish("PLAYING", "${chosen.width}x${chosen.height}p${chosen.fps}")
-                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen, audioCodec, uibc))
+                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen, audioCodec, uibc, rtpTcp))
                     startKeepAlive(output)
                 }
             }
@@ -179,6 +208,22 @@ class WfdSource(
             "TEARDOWN" -> { respond(output, seq, emptyList()); publish("TEARDOWN"); onStop("TEARDOWN"); close() }
             "GET_PARAMETER", "PAUSE" -> respond(output, seq, emptyList())
             else -> respond(output, seq, emptyList(), 405, "Method Not Allowed")
+        }
+    }
+
+    private fun connectRtpTcp(address: InetAddress, port: Int): Boolean {
+        try { rtpTcp?.close() } catch (_: IOException) { }
+        rtpTcp = null
+        val socket = Socket()
+        return try {
+            socket.bind(InetSocketAddress(local, 0))
+            socket.tcpNoDelay = true
+            socket.connect(InetSocketAddress(address, port), RTP_TCP_CONNECT_MS)
+            rtpTcp = socket
+            true
+        } catch (_: IOException) {
+            try { socket.close() } catch (_: IOException) { }
+            false
         }
     }
 
@@ -207,7 +252,7 @@ class WfdSource(
         val text = buildString {
             append(line).append("\r\n")
             append("Date: ").append(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME.format(java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC))).append("\r\n")
-            append("Server: AionLinkOpen/0.18\r\n")
+            append("Server: AionLinkOpen/0.21\r\n")
             headers.forEach { append(it).append("\r\n") }
             if (bytes.isNotEmpty()) append("Content-Length: ${bytes.size}\r\n")
             append("\r\n")
@@ -248,6 +293,7 @@ class WfdSource(
         if (closed) return
         closed = true
         keepAlive?.interrupt()
+        try { rtpTcp?.close() } catch (_: IOException) { }
         try { sink?.close() } catch (_: IOException) { }
         try { server?.close() } catch (_: IOException) { }
     }

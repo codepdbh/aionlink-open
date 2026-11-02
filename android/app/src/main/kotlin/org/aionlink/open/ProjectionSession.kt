@@ -9,6 +9,7 @@ import android.view.WindowManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.aionlink.iccoa.ExperimentalAuthCrypto
+import org.aionlink.iccoa.UCarFrameWriter
 import org.aionlink.projection.TsRtpStreamer
 import org.aionlink.projection.UibcEvent
 import org.aionlink.projection.UibcMapper
@@ -17,6 +18,7 @@ import org.aionlink.projection.WfdFormats
 import org.aionlink.projection.WfdPlay
 import org.aionlink.projection.WfdSource
 import org.aionlink.projection.WfdStatus
+import org.aionlink.wifi.CarFrame
 import org.aionlink.wifi.ControlChannelStatus
 import org.aionlink.wifi.SessionControlServer
 import java.net.DatagramPacket
@@ -35,6 +37,7 @@ data class TouchStatus(val stage: String = "IDLE", val events: Int = 0, val inje
  * addresses, keys, coordinates or payloads.
  */
 class ProjectionSession(private val context: Context, private val event: (String) -> Unit) {
+    private companion object { const val MAX_LOGGED_FRAMES = 40 }
     private val mutableControl = MutableStateFlow(ControlChannelStatus())
     val control = mutableControl.asStateFlow()
     private val mutableAux = MutableStateFlow("MEDIA IDLE • SENSOR IDLE")
@@ -67,8 +70,14 @@ class ProjectionSession(private val context: Context, private val event: (String
         stop(null)
         localAddress = local
         uibcKey = sessionKey.copyOf()
+        val logged = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+        fun logFrame(label: String, frame: CarFrame) {
+            if (logged.getOrPut(label) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet() > MAX_LOGGED_FRAMES) return
+            event("Canal $label recibió: categoría=${frame.category}; método=${frame.method} " +
+                "(${SessionControlServer.methodName(frame.method)}); tipo=${frame.messageType}")
+        }
         fun passive(port: Int, label: String, assign: (SessionControlServer) -> Unit) = try {
-            SessionControlServer(local, sessionKey.copyOf(), port, active = false) { status ->
+            SessionControlServer(local, sessionKey.copyOf(), port, active = false, onFrame = { logFrame(label, it) }) { status ->
                 if (label == "MEDIA") mediaStage = status.stage else sensorStage = status.stage
                 val text = "MEDIA $mediaStage • SENSOR $sensorStage"
                 if (mutableAux.value != text) { mutableAux.value = text; event("Canal $label: ${status.stage}") }
@@ -77,8 +86,16 @@ class ProjectionSession(private val context: Context, private val event: (String
         passive(SessionControlServer.MEDIA_PORT, "MEDIA") { mediaServer = it }
         passive(SessionControlServer.SENSOR_PORT, "SENSOR") { sensorServer = it }
         try {
-            SessionControlServer(local, sessionKey, onStatus = { status ->
+            SessionControlServer(local, sessionKey, onFrame = { frame ->
+                if (frame.category == UCarFrameWriter.CATEGORY_CONTROL && frame.method != SessionControlServer.METHOD_HEARTBEAT) logFrame("CONTROL", frame)
+                if (frame.category == UCarFrameWriter.CATEGORY_CONTROL) when (frame.method) {
+                    // Samsung lb/g.G: disconnect → notifyDisplayError(23); foreground → resumeDisplay.
+                    SessionControlServer.METHOD_DISCONNECT -> main.post { stop("COCHE_PIDIO_DESCONEXION") }
+                    SessionControlServer.METHOD_CAR_TO_FOREGROUND -> encoder?.requestKeyframe()
+                }
+            }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
+                if (mutableControl.value.carConfig != status.carConfig) event("Configuración del coche: ${status.carConfig}")
                 mutableControl.value = status
             }).also { it.start(); controlServer = it }
         } catch (_: java.io.IOException) { sessionKey.fill(0); mutableControl.value = ControlChannelStatus("BIND_FAILED") }
@@ -93,7 +110,7 @@ class ProjectionSession(private val context: Context, private val event: (String
             WfdSource(local, onStatus = { status ->
                 if (mutableRtsp.value.stage != status.stage) event("RTSP WFD: ${status.stage} ${status.detail}".trim())
                 mutableRtsp.value = status
-            }, onPlay = ::play, onIdrRequest = { encoder?.requestKeyframe() }, onStop = { reason -> stopStream("RTSP_$reason") })
+            }, onPlay = ::play, onIdrRequest = { encoder?.requestKeyframe() }, onStop = { reason -> stopStream("RTSP_$reason") }, onLog = event)
                 .also { it.start(); source = it }
         } catch (_: java.io.IOException) { mutableRtsp.value = WfdStatus("BIND_FAILED") }
     }
@@ -131,16 +148,20 @@ class ProjectionSession(private val context: Context, private val event: (String
         }
         try {
             val local = localAddress ?: return
-            val socket = DatagramSocket(null).apply { reuseAddress = true }
-            try { socket.bind(InetSocketAddress(local, WfdSource.RTP_SERVER_PORT)) }
-            catch (_: java.net.SocketException) { socket.bind(InetSocketAddress(local, 0)) }
-            datagrams = socket
-            val target = InetSocketAddress(play.sink, play.rtpPort)
             val audioPermitted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             val withAudio = play.audioCodec == WfdFormats.AAC_48K_STEREO && audioPermitted
-            val streamer = TsRtpStreamer({ bytes ->
-                try { socket.send(DatagramPacket(bytes, bytes.size, target)) } catch (_: java.io.IOException) { }
-            }, audio = withAudio)
+            val send: (ByteArray) -> Unit = play.rtpTcp?.let { tcpSender(it) } ?: run {
+                val socket = DatagramSocket(null).apply { reuseAddress = true }
+                try { socket.bind(InetSocketAddress(local, WfdSource.RTP_SERVER_PORT)) }
+                catch (_: java.net.SocketException) { socket.bind(InetSocketAddress(local, 0)) }
+                datagrams = socket
+                val target = InetSocketAddress(play.sink, play.rtpPort)
+                val udp: (ByteArray) -> Unit = { bytes ->
+                    try { socket.send(DatagramPacket(bytes, bytes.size, target)) } catch (_: java.io.IOException) { }
+                }
+                udp
+            }
+            val streamer = TsRtpStreamer(send, audio = withAudio)
             val audioState = when {
                 withAudio -> "AAC"
                 play.audioCodec == null -> "RECEPTOR_SIN_AUDIO"
@@ -169,6 +190,18 @@ class ProjectionSession(private val context: Context, private val event: (String
             } catch (error: Exception) { mutableStream.value = mutableStream.value.copy(audio = "START_${error.javaClass.simpleName}") }
             event("Vídeo iniciado hacia el receptor: ${mode.width}x${mode.height}p${mode.fps}; audio=$audioState; táctil=${play.uibc}")
         } catch (error: Exception) { stopStream("START_${error.javaClass.simpleName}") }
+    }
+
+    /** The socket belongs to WfdSource; after the first write failure the stream stops and later packets are dropped. */
+    private fun tcpSender(socket: java.net.Socket): (ByteArray) -> Unit {
+        val output = socket.getOutputStream()
+        var failed = false
+        return { bytes ->
+            if (!failed) try { output.write(TsRtpStreamer.tcpFrame(bytes)) } catch (_: java.io.IOException) {
+                failed = true
+                main.post { stopStream("RTP_TCP_IO") }
+            }
+        }
     }
 
     private fun stopStream(reason: String) {
