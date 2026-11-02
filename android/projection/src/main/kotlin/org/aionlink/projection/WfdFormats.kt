@@ -7,6 +7,9 @@ data class WfdVideoMode(val ceaIndex: Int, val width: Int, val height: Int, val 
         .format((ceaIndex shl 3), profile, level, 1 shl ceaIndex)
 }
 
+/** Port and transport the sink chose in wfd_client_rtp_ports. */
+data class WfdClientRtp(val port: Int, val tcp: Boolean)
+
 object WfdFormats {
     /** Subset of the public Wi-Fi Display CEA resolution table that AionLink can encode. */
     private val cea = mapOf(0 to Triple(640, 480, 60), 5 to Triple(1280, 720, 30), 6 to Triple(1280, 720, 60),
@@ -53,13 +56,17 @@ object WfdFormats {
     fun sinkSupportsUibc(sinkValue: String?): Boolean =
         sinkValue?.trim()?.let { it.isNotEmpty() && !it.equals("none", true) } ?: false
 
-    /** "RTP/AVP/UDP;unicast 19000 0 mode=play" → 19000. */
-    fun clientRtpPort(sinkValue: String?): Int? {
+    /**
+     * "RTP/AVP/UDP;unicast 19000 0 mode=play" or "RTP/AVP/TCP;unicast 19000 0 mode=play" → port and transport.
+     * The ucarhusdk sink in MiAuto always selects TCP unicast. Interleaved is not implemented and returns null.
+     */
+    fun clientRtpPorts(sinkValue: String?): WfdClientRtp? {
         val parts = sinkValue?.trim()?.split(Regex("\\s+")) ?: return null
-        if (parts.size < 2 || !parts[0].startsWith("RTP/AVP/UDP")) return null
-        return parts[1].toIntOrNull()?.takeIf { it in 1..65535 }
+        if (parts.size < 2) return null
+        val tcp = when (parts[0]) { "RTP/AVP/UDP;unicast" -> false; "RTP/AVP/TCP;unicast" -> true; else -> return null }
+        return parts[1].toIntOrNull()?.takeIf { it in 1..65535 }?.let { WfdClientRtp(it, tcp) }
     }
 
     /** Printable, bounded copy for diagnostics; the value describes the car display, not the user. */
-    fun safeExcerpt(value: String?): String = value?.filter { it in ' '..'~' }?.take(96) ?: "ausente"
+    fun safeExcerpt(value: String?): String = value?.filter { it in ' '..'~' }?.take(160) ?: "ausente"
 }

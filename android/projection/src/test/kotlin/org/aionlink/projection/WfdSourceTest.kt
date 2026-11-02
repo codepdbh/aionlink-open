@@ -2,6 +2,7 @@ package org.aionlink.projection
 
 import java.io.BufferedInputStream
 import java.net.InetAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -50,7 +51,7 @@ class WfdSourceTest {
             send(sink, "SETUP rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 2\r\nTransport: RTP/AVP/UDP;unicast;client_port=19000\r\n\r\n")
             val m6 = source.read(input)!!
             assertEquals(200, m6.status)
-            assertEquals("RTP/AVP/UDP;unicast;client_port=19000;server_port=15550", m6.headers["transport"])
+            assertEquals("RTP/AVP/UDP;unicast;client_port=19000;server_port=15550-15551", m6.headers["transport"])
             val session = m6.headers["session"]!!.substringBefore(';')
             send(sink, "PLAY rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 3\r\nSession: $session\r\n\r\n")
             assertEquals(200, source.read(input)!!.status)
@@ -63,5 +64,106 @@ class WfdSourceTest {
         source.close()
         assertEquals("synthetic", WfdFormats.safeExcerpt("synthetic"))
         assertTrue(stages.containsAll(listOf("LISTENING", "SINK_CONNECTED", "M2_OK", "M3_OK", "M4_OK", "M6_SETUP", "PLAYING", "TEARDOWN")))
+    }
+
+    /** Runs M1 to M5 against a synthetic sink that reports [rtpPorts]; returns the SETUP-ready input stream. */
+    private fun negotiate(source: WfdSource, sink: Socket, rtpPorts: String, extraM3: String = ""): BufferedInputStream {
+        sink.soTimeout = 3000
+        val input = BufferedInputStream(sink.getInputStream())
+        val m1 = source.read(input)!!
+        send(sink, "RTSP/1.0 200 OK\r\nCSeq: ${m1.cseq}\r\n\r\n")
+        send(sink, "OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n")
+        source.read(input)!!
+        val m3 = source.read(input)!!
+        val body = "wfd_video_formats: 28 00 01 01 ffffffff ffffffff ffffffff 00 0000 0000 00 none none\r\n" +
+            "wfd_client_rtp_ports: $rtpPorts\r\n" + extraM3
+        send(sink, "RTSP/1.0 200 OK\r\nCSeq: ${m3.cseq}\r\nContent-Length: ${body.length}\r\n\r\n$body")
+        val m4 = source.read(input)!!
+        assertEquals(rtpPorts, m4.parameters()["wfd_client_rtp_ports"])
+        send(sink, "RTSP/1.0 200 OK\r\nCSeq: ${m4.cseq}\r\n\r\n")
+        val m5 = source.read(input)!!
+        send(sink, "RTSP/1.0 200 OK\r\nCSeq: ${m5.cseq}\r\n\r\n")
+        return input
+    }
+
+    @Test fun reportsExtraM3ParametersAndSinkRequestNamesWithoutValues() {
+        val loopback = InetAddress.getLoopbackAddress()
+        var last = WfdStatus()
+        val logs = java.util.concurrent.LinkedBlockingQueue<String>()
+        val source = WfdSource(loopback, port = 0, onStatus = { last = it }, onPlay = {}, onLog = { logs += it })
+        source.start()
+        Socket(loopback, source.boundPort).use { sink ->
+            val input = negotiate(source, sink, "RTP/AVP/TCP;unicast 19000 0 mode=play",
+                "wfd_av_raw_packet: true\r\nwfd_presentation_URL: rtsp://192.0.2.1/x none\r\n")
+            assertEquals("wfd_av_raw_packet=true", last.sinkOther)
+            logs.clear()
+            val body = "wfd_idr_request\r\nwfd_secret: valor\r\n"
+            send(sink, "SET_PARAMETER rtsp://x RTSP/1.0\r\nCSeq: 9\r\nContent-Length: ${body.length}\r\n\r\n$body")
+            assertEquals(200, source.read(input)!!.status)
+            assertEquals("RTSP del receptor: SET_PARAMETER; parámetros=[wfd_idr_request, wfd_secret]", logs.poll(3, TimeUnit.SECONDS))
+        }
+        source.close()
+    }
+
+    @Test fun tcpUnicastConnectsToSinkListenerAndFramesPackets() {
+        val loopback = InetAddress.getLoopbackAddress()
+        val played = CountDownLatch(1)
+        var play: WfdPlay? = null
+        var last = WfdStatus()
+        val source = WfdSource(loopback, port = 0, onStatus = { last = it }, onPlay = { play = it; played.countDown() })
+        source.start()
+        ServerSocket(0, 1, loopback).use { rtpListener ->
+            rtpListener.soTimeout = 3000
+            Socket(loopback, source.boundPort).use { sink ->
+                val input = negotiate(source, sink, "RTP/AVP/TCP;unicast 19000 0 mode=play")
+                assertEquals("RTP/AVP/TCP;unicast 19000 0 mode=play", last.sinkRtpPorts)
+                send(sink, "SETUP rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 2\r\n" +
+                    "Transport: RTP/AVP/TCP;unicast;client_port=${rtpListener.localPort}\r\n\r\n")
+                rtpListener.accept().use { rtp ->
+                    val m6 = source.read(input)!!
+                    assertEquals(200, m6.status)
+                    assertEquals("RTP/AVP/TCP;unicast;client_port=${rtpListener.localPort};server_port=15550-15551", m6.headers["transport"])
+                    send(sink, "PLAY rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 3\r\nSession: 1\r\n\r\n")
+                    assertEquals(200, source.read(input)!!.status)
+                    assertTrue(played.await(3, TimeUnit.SECONDS))
+                    assertEquals(rtpListener.localPort, play!!.rtpPort)
+                    play!!.rtpTcp!!.getOutputStream().write(TsRtpStreamer.tcpFrame(byteArrayOf(1, 2, 3)))
+                    rtp.soTimeout = 3000
+                    assertArrayEquals(byteArrayOf(0, 3, 1, 2, 3), rtp.getInputStream().readNBytes(5))
+                }
+            }
+        }
+        source.close()
+        assertTrue(play!!.rtpTcp!!.isClosed)
+    }
+
+    @Test fun tcpSetupFailsWhenSinkIsNotListening() {
+        val loopback = InetAddress.getLoopbackAddress()
+        val closedPort = ServerSocket(0, 1, loopback).use { it.localPort }
+        val stages = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val source = WfdSource(loopback, port = 0, onStatus = { stages += it.stage }, onPlay = { fail("no PLAY expected") })
+        source.start()
+        Socket(loopback, source.boundPort).use { sink ->
+            val input = negotiate(source, sink, "RTP/AVP/TCP;unicast 19000 0 mode=play")
+            send(sink, "SETUP rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 2\r\n" +
+                "Transport: RTP/AVP/TCP;unicast;client_port=$closedPort\r\n\r\n")
+            assertEquals(500, source.read(input)!!.status)
+        }
+        source.close()
+        assertTrue(stages.contains("M6_TCP_FAILED"))
+    }
+
+    @Test fun interleavedIsRejectedInsteadOfBeingTreatedAsUdp() {
+        val loopback = InetAddress.getLoopbackAddress()
+        val stages = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val source = WfdSource(loopback, port = 0, onStatus = { stages += it.stage }, onPlay = { fail("no PLAY expected") })
+        source.start()
+        Socket(loopback, source.boundPort).use { sink ->
+            val input = negotiate(source, sink, "RTP/AVP/TCP;unicast 19000 0 mode=play")
+            send(sink, "SETUP rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 2\r\nTransport: RTP/AVP/TCP;interleaved=0-1\r\n\r\n")
+            assertEquals(461, source.read(input)!!.status)
+        }
+        source.close()
+        assertTrue(stages.contains("M6_UNSUPPORTED"))
     }
 }

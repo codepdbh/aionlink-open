@@ -46,6 +46,49 @@ class SessionControlServerTest {
         assertTrue(stages.containsAll(listOf("LISTENING", "CONNECTED")))
     }
 
+    @Test fun requestsConfigOnceAndReportsCarFrames() {
+        val key = ByteArray(16) { 7 }
+        val testKey = key.copyOf()
+        val carFrames = java.util.concurrent.LinkedBlockingQueue<CarFrame>()
+        val configs = java.util.concurrent.LinkedBlockingQueue<String>()
+        SessionControlServer(InetAddress.getLoopbackAddress(), key, port = 0, onFrame = { carFrames += it }) {
+            if (it.carConfig != "sin respuesta") configs += it.carConfig
+        }.use { server ->
+            server.start()
+            Socket(InetAddress.getLoopbackAddress(), server.boundPort).use { car ->
+                car.soTimeout = 3000
+                val input = DataInputStream(car.getInputStream())
+                val methods = mutableListOf<ObservedUCarHeader>()
+                repeat(3) {
+                    val header = ByteArray(20); input.readFully(header)
+                    val parsed = UCarFrameReader.header(header)
+                    input.readFully(ByteArray(parsed.totalBytes - 20))
+                    methods += parsed
+                }
+                val request = methods.single { it.method == SessionControlServer.METHOD_GET_CONFIG_REQUEST }
+                assertEquals(UCarFrameWriter.TYPE_REQ, request.messageType); assertEquals(20, request.totalBytes)
+                val response = byteArrayOf(0x0A, 2, 0x11, 0x22) + UCarFrameWriter.varintField(5, 1920) +
+                    byteArrayOf(0x8A.toByte(), 0x01, 2, 'v'.code.toByte(), '1'.code.toByte())
+                car.getOutputStream().write(UCarFrameWriter.frame(UCarFrameWriter.flags(0, 1, UCarFrameWriter.TYPE_RES), 1,
+                    SessionControlServer.METHOD_GET_CONFIG_RESPONSE, ExperimentalAuthCrypto.sessionSeal(testKey, response), request.sequence, 0))
+                val summary = configs.poll(3, java.util.concurrent.TimeUnit.SECONDS)
+                assertEquals("vídeoAncho=1920; sdk=v1", summary)
+                car.getOutputStream().write(UCarFrameWriter.frame(UCarFrameWriter.flags(0, 1, UCarFrameWriter.TYPE_SEND), 1,
+                    SessionControlServer.METHOD_DISCONNECT, ByteArray(0), 90, 0))
+                var last: CarFrame? = null
+                repeat(2) { last = carFrames.poll(3, java.util.concurrent.TimeUnit.SECONDS) }
+                assertEquals(CarFrame(1, SessionControlServer.METHOD_DISCONNECT, UCarFrameWriter.TYPE_SEND), last)
+            }
+        }
+        assertEquals("disconnect", SessionControlServer.methodName(23))
+        assertEquals("desconocido", SessionControlServer.methodName(99))
+    }
+
+    @Test fun truncatedConfigIsMarkedAndNeverThrows() {
+        assertEquals("vídeoAlto=960; truncado=sí", CarConfigSummary.of(UCarFrameWriter.varintField(6, 960) + byteArrayOf(0x12, 0x7F)))
+        assertEquals("respuesta sin campos conocidos", CarConfigSummary.of(byteArrayOf()))
+    }
+
     @Test fun passiveChannelOnlyAcknowledges() {
         val key = ByteArray(16) { 5 }
         val testKey = key.copyOf()

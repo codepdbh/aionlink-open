@@ -227,7 +227,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.19.0-research")
+        appendLine("AionLink Open 0.21.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -263,9 +263,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("PIN, MAC, SSID, PSK y contenido ServerInfo omitidos. Red conectada no implica autenticaci\u00f3n ICCOA.")
         val control = projection.control.value
         appendLine("Canal CONTROL: ${control.stage}; recibidos=${control.received}; heartbeats recibidos=${control.heartbeatsReceived}; enviados=${control.heartbeatsSent}; ACK=${control.acksSent}; fallos descifrado=${control.decryptFailures}; categoría*1000+método=${control.lastMethods}")
+        appendLine("Configuración del coche: ${control.carConfig}")
         val rtsp = projection.rtsp.value
         appendLine("RTSP WFD: ${rtsp.stage}; ${rtsp.detail}")
         appendLine("Receptor wfd_video_formats=${rtsp.sinkVideoFormats}")
+        appendLine("Receptor wfd_client_rtp_ports=${rtsp.sinkRtpPorts}")
+        appendLine("Receptor otros parámetros M3=${rtsp.sinkOther}")
         appendLine("Receptor wfd_audio_codecs=${rtsp.sinkAudioCodecs}; wfd_car_display_mode=${rtsp.carDisplayMode}")
         appendLine("Receptor wfd_uibc_capability=${rtsp.sinkUibc}")
         appendLine(projection.auxiliary.value)
@@ -437,7 +440,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.19.0")
+            Text("Cliente USB + Bluetooth experimental • v0.21.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)

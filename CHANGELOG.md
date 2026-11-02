@@ -1,5 +1,20 @@
 # Cambios
 
+## 0.21.0-research — 2026-11-02
+
+- Al recibir `disconnect` (método 23) del coche se detienen vídeo y canales; antes se ignoraba.
+- El método 4 (coche en primer plano) pide un fotograma clave.
+- Solicitud de configuración del coche (método 24), con exportación limitada y sin dirección Bluetooth.
+- El diagnóstico registra con hora los mensajes del coche y las peticiones RTSP, sin contenido, y los demás parámetros de M3.
+- 0.20 confirmó en el AION RTP sobre TCP y `PLAYING`, pero sin imagen; 0.21 sin verificar con el AION.
+
+## 0.20.0-research — 2026-11-02
+
+- RTSP deja de detenerse en M3 cuando el receptor elige `RTP/AVP/TCP;unicast`.
+- Vídeo y audio por TCP: el teléfono se conecta al `client_port` y enmarca con 16 bits de longitud.
+- `server_port` siempre como par `15550-15551`; `SETUP` interleaved responde 461.
+- El diagnóstico exporta `wfd_client_rtp_ports`; sin verificar con el AION.
+
 ## 0.19.0-research — 2026-10-30
 
 - Táctil del vehículo: servidor UIBC (4321), JSON observado y gestos mediante un servicio de accesibilidad.
