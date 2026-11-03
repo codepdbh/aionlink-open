@@ -87,13 +87,14 @@ class ProjectionSession(private val context: Context, private val event: (String
         passive(SessionControlServer.SENSOR_PORT, "SENSOR") { sensorServer = it }
         try {
             SessionControlServer(local, sessionKey, onFrame = { frame ->
-                if (frame.category == UCarFrameWriter.CATEGORY_CONTROL && frame.method != SessionControlServer.METHOD_HEARTBEAT) logFrame("CONTROL", frame)
+                if (frame.category == UCarFrameWriter.CATEGORY_ACK ||
+                    frame.category == UCarFrameWriter.CATEGORY_CONTROL && frame.method != SessionControlServer.METHOD_HEARTBEAT) logFrame("CONTROL", frame)
                 if (frame.category == UCarFrameWriter.CATEGORY_CONTROL) when (frame.method) {
                     // Samsung lb/g.G: disconnect → notifyDisplayError(23); foreground → resumeDisplay.
                     SessionControlServer.METHOD_DISCONNECT -> main.post { stop("COCHE_PIDIO_DESCONEXION") }
                     SessionControlServer.METHOD_CAR_TO_FOREGROUND -> encoder?.requestKeyframe()
                 }
-            }, onStatus = { status ->
+            }, onSent = { event("Canal CONTROL envió: $it") }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
                 if (mutableControl.value.carConfig != status.carConfig) event("Configuración del coche: ${status.carConfig}")
                 mutableControl.value = status
@@ -141,9 +142,10 @@ class ProjectionSession(private val context: Context, private val event: (String
     }
 
     private fun play(play: WfdPlay) {
-        val granted = ProjectionService.projection
+        val granted = ProjectionService.takeProjection()
         if (granted == null) {
             mutableStream.value = StreamStatus("SIN_CAPTURA", "Pulsa 'Preparar captura de pantalla' antes de conectar")
+            event("Vídeo no iniciado: captura sin preparar para esta conexión")
             return
         }
         try {

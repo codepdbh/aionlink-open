@@ -1,5 +1,23 @@
 # Cambios
 
+## 0.25.0-research — 2026-11-02
+
+- `AppStateChanged` se envía como `SEND_SYNC`, el único tipo que acepta el analizador del coche; antes iba como `SEND`.
+- El registro añade los ACK del coche y el `AppStateChanged` enviado con sus campos.
+- 0.24 confirmó en el AION el icono "AionLink" y los métodos 4 y 30 al pulsarlo, seguidos de cierre en unos 65 ms; 0.25 sin verificar con el AION.
+
+## 0.24.0-research — 2026-11-02
+
+- Se retiran los avisos no solicitados de 0.23: el AION cerró la sesión 84 ms después de `AppStateChanged`.
+- Con AUTH automático, la conexión no empieza si la captura no está preparada, y cada permiso de captura sirve para una sola conexión.
+- 0.24 sin verificar con el AION.
+
+## 0.23.0-research — 2026-11-02
+
+- Tras leer el coche los detalles de la app, el teléfono envía una vez `AppStateChanged` (STARTED, mostrar) y `NotifyMirrorState` (BACK_TO_FOREGROUND).
+- La app usa el id 2; `AppStateChanged` deja la marca de tiempo en 0, porque el reproductor del SDK la compara con el tiempo del vídeo.
+- 0.22 confirmó en el AION el modo 4 y la lectura de la lista de apps, pero sin imagen; 0.23 sin verificar con el AION.
+
 ## 0.22.0-research — 2026-11-02
 
 - AUTH declara también el modo 4 (`APP_FULLSCREEN_CAST`), el único que el AION informa, por el error "integrated desktop screen casting".

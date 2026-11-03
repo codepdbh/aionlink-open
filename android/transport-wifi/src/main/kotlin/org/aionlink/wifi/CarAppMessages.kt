@@ -5,11 +5,12 @@ import java.io.ByteArrayOutputStream
 
 /**
  * Independently encoded app messages of fusion cast, from the UCarProto field numbers in MiAuto. AionLink exposes
- * one app, the phone's mirrored screen, with the id and category UCarAdapter uses for its normal cast stand-in.
+ * one app, the phone's mirrored screen, in the category UCarAdapter uses for its normal cast stand-in.
  * Only fixed labels leave the phone: never the installed apps, their names or their icons.
  */
 object CarAppMessages {
-    const val APP_ID = 0
+    /** Not 0, the id of the normal cast stand-in, nor [PRODUCT_ID]. */
+    const val APP_ID = 2
     /** ControlManager.getAppDetailInfo always requests this id and reads it as the product icon and name. */
     const val PRODUCT_ID = 1
     /** Original 48x48 solid colour PNG. */
@@ -40,8 +41,10 @@ object CarAppMessages {
     /**
      * AppStateChanged{id(1), isNeedShow(2), displayMode(3), state(4), timestamp(5)} answering
      * InvokeApp{id(1), invokeState(3), displayMode(4)}; null for a malformed message or an unknown invocation.
+     * VideoPlayerV2 compares timestamp with the stream's presentation time, so it stays 0, as in UCarAdapter's normal
+     * cast stand-in. Sent only in answer: the AION closed the session 84 ms after an unrequested one (diagnostic 27).
      */
-    fun appState(invokeApp: ByteArray, nowMillis: Long): ByteArray? {
+    fun appState(invokeApp: ByteArray): ByteArray? {
         var id = 0L; var invocation = INVOKE_START; var displayMode = 0L
         try {
             ProtoScan.walk(invokeApp, onVarint = { field, value ->
@@ -52,9 +55,7 @@ object CarAppMessages {
         // Invocation and state enums share START..RESUME; UPDATE only changes the display mode of a visible app.
         val state = if (invocation == INVOKE_UPDATE) STATE_RESUMED else invocation
         val show = invocation == INVOKE_START || invocation == INVOKE_RESUME || invocation == INVOKE_UPDATE
-        return message {
-            number(1, id); number(2, if (show) 1 else 0); number(3, displayMode); number(4, state); number(5, nowMillis)
-        }
+        return message { number(1, id); number(2, if (show) 1 else 0); number(3, displayMode); number(4, state) }
     }
 
     private class Writer(val out: ByteArrayOutputStream) {
