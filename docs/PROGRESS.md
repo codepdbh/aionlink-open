@@ -1239,3 +1239,74 @@ sintetico. No se inicio busqueda, GATT, P2P ni AUTH desde el PC; la prueba con e
 sigue pendiente. Commit a main pedido por el propietario; TXT, fotografias, APK y
 extracted/ siguen privados. El coche no admite instalar aplicaciones: todo el codigo
 corre en el telefono y el receptor ICCOA de fabrica no se modifica.
+
+Prueba de 0.22 en el AION: diagnostico (25), 9592 bytes, SHA-256
+`e50f48a53742791be70fa00276b939ce11eb0def4cd805f9d60337d849fd8c46`. Hardware: AUTH responde
+workModes=0x4, M3 trae iccoa_support_fusion y el coche envia los metodos 26 y 28. No envia
+4 ni 30 en 31 s: sin imagen y sin sesion ICCOA verificada. Falta probar si se abre al pulsar
+en la pantalla del coche. El propietario informa de que en esta prueba no aparecio el aviso
+"integrated desktop" ni ninguna otra cosa tras "connected".
+
+## 0.23 - El telefono anuncia la app al coche - 2026-11-02
+
+Diagnostico de 0.22 copiado por ADB: (26), 9550 bytes, SHA-256
+`bd0568971a364686a6da83c43325080f108e517052fdbeafb76b31e5adb77a2c`. Hardware: workModes=0x4
+otra vez y metodos 26 y 28 dos veces; sin 4 ni 30, sin imagen y sin sesion ICCOA verificada.
+Fotografia del propietario: las tarjetas con "connected" y el aviso de desconexion de
+Bluetooth, ya presente en la prueba de 0.21. No consta en el diagnostico si se pulso algo.
+
+Defectos propios corregidos: 0.22 enviaba la hora en AppStateChanged.timestamp, que
+VideoPlayerV2 compara con el tiempo del video, y usaba id 0, el sustituto del modo normal.
+
+Binario 0.23.0-research, versionCode 23, 24 860 393 bytes, SHA-256
+`0f44f816d08a485ffdea569cdbaf42b44ab2dc1b205d75400a15018d33df6aa2`. Validacion: 6 Python y
+102 JVM (82 + 20) correctas, con fixtures sinteticos. Lint de :app 0 errores/11
+advertencias; :transport-wifi sin avisos. Instrumentadas no repetidas.
+
+Incompleto: ningun cliente local envia estos anuncios sin peticion; es un experimento, solo
+probado con coche sintetico. Prueba con el AION pendiente. Sin commit de esta version.
+
+## 0.24 - Retirada del anuncio y captura obligatoria - 2026-11-02
+
+Diagnosticos de 0.23 copiados por ADB: (27), 10 389 bytes, SHA-256
+`3009a717e4b99c53e46c6dd8f5ef6a0efd9fff2ddf1ceb220fe66c8d60699691`, y (28), 16 112 bytes,
+SHA-256 `275ba1f4ce6560943cbd25a0a20756b56c8c2d4faf78123774fb798f45387cf6`. Hardware: el
+intento 1 se cierra 84 ms despues de enviar AppStateChanged; el intento 2 da
+START_SecurityException, sin video, y se cierra a los 10 s. El propietario informa de un
+error "no compatible o algo asi", sin texto exacto ni foto: no consta a cual de los dos
+cierres corresponde. 0.23 fue un retroceso respecto a 0.22, que seguia conectada a los 31 s.
+
+Binario 0.24.0-research, versionCode 24, 24 860 389 bytes, SHA-256
+`bac0e107b06063c65338d9c0f33603ff8266b61af8ace1bedf6f06054c887b52`. Validacion: 6 Python y
+102 JVM (82 + 20) correctas, con fixtures sinteticos. Lint de :app 0 errores/11
+advertencias; :transport-wifi sin avisos. Instrumentadas no repetidas. Instalacion con
+install -r: permisos y accesibilidad conservados; MainActivity COLD/Status ok 292 ms.
+
+Incompleto: el bloqueo por captura sin preparar no tiene prueba automatica ni se ha
+ejecutado en el telefono. Sigue sin saberse si el coche abre la app al pulsar su pantalla.
+Sin imagen y sin sesion ICCOA verificada. Sin commit de 0.23 ni 0.24.
+
+## 0.25 - Tipo de AppStateChanged tras abrir la app en el coche - 2026-11-02
+
+Diagnosticos de 0.24 copiados por ADB: (29), 11 675 bytes, SHA-256
+`672dfb8e7e1521094164f25f619f0d019cfd6e765f57d09dcef3129273e8b23d`; (30), 10 537 bytes,
+SHA-256 `f22517e8b3d6221d807a9e9789869fb4d32393b35505f3a44d2b2913e159e91d`; (31), 10 969
+bytes, SHA-256 `7719549bba176ab4ae6d30e47f5792c2e7936158f93fe28c26c85367aebe35b8`.
+
+Hardware: el coche muestra "AionLink Open" y el icono "AionLink" (foto del propietario, no
+copiada). Al pulsarlo envia los metodos 4 y 30, y cierra toda la sesion 63 ms y 66 ms despues
+en dos intentos. El bloqueo de 0.24 sin captura se ejecuto en el telefono y funciono. Sigue
+sin imagen y sin sesion ICCOA verificada.
+
+Defecto propio: AppStateChanged iba como SEND y parseAppStateChangedMessage exige SEND_SYNC.
+Causa del cierre sin demostrar: en MiAuto 0.1.1 esa excepcion se captura sin cerrar el canal;
+el coche usa SDK v2.0.2. Detalle en protocol-research/FUSION_MODE_022.md.
+
+Binario 0.25.0-research, versionCode 25, 24 860 393 bytes, SHA-256
+`64adaadd33308cc220e5a4edd136409f5e58e25b7627649d738713a518092787`. Validacion: 6 Python y
+102 JVM (82 + 20) correctas, con fixtures sinteticos. Lint de :app 0 errores/11
+advertencias; :transport-wifi sin avisos. Instrumentadas no repetidas. Instalacion con
+install -r: permisos y accesibilidad conservados; MainActivity WARM/Status ok 291 ms; cero
+lineas en el buffer crash del UID propio. Prueba con el AION pendiente. Commit a main de
+0.23, 0.24 y 0.25 pedido por el propietario, sin esperar a esa prueba; TXT, fotografias, APK
+y extracted/ siguen privados.

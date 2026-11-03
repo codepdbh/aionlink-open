@@ -83,12 +83,14 @@ class SessionControlServerTest {
         }
         assertEquals("disconnect", SessionControlServer.methodName(23))
         assertEquals("desconocido", SessionControlServer.methodName(99))
+        assertEquals("ack", SessionControlServer.methodName(0))
     }
 
     @Test fun answersFusionAppRequestsUnderTheRequestSequence() {
         val key = ByteArray(16) { 9 }
         val testKey = key.copyOf()
-        SessionControlServer(InetAddress.getLoopbackAddress(), key, port = 0) { }.use { server ->
+        val sent = java.util.concurrent.LinkedBlockingQueue<String>()
+        SessionControlServer(InetAddress.getLoopbackAddress(), key, port = 0, onSent = { sent += it }) { }.use { server ->
             server.start()
             Socket(InetAddress.getLoopbackAddress(), server.boundPort).use { car ->
                 car.soTimeout = 3000
@@ -107,16 +109,24 @@ class SessionControlServerTest {
                 val list = until(SessionControlServer.METHOD_GET_APP_LIST_RESPONSE)
                 assertEquals(40L, list.first.sequence); assertEquals(UCarFrameWriter.TYPE_RES, list.first.messageType)
                 assertEquals(1, list.first.source); assertArrayEquals(CarAppMessages.appList(), list.second)
-                carSend(UCarFrameWriter.TYPE_REQ, SessionControlServer.METHOD_GET_APP_DETAIL_REQUEST, ByteArray(0), 41)
-                val detail = until(SessionControlServer.METHOD_GET_APP_DETAIL_RESPONSE)
-                assertEquals(41L, detail.first.sequence); assertArrayEquals(CarAppMessages.appDetail(), detail.second)
                 // InvokeApp{id=0, START, displayMode=0} is all defaults, so its body is empty.
                 carSend(UCarFrameWriter.TYPE_SEND_SYNC, SessionControlServer.METHOD_INVOKE_APP, ByteArray(0), 42)
                 val state = until(SessionControlServer.METHOD_APP_STATE_CHANGED)
-                assertEquals(UCarFrameWriter.TYPE_SEND, state.first.messageType); assertNotEquals(42L, state.first.sequence)
-                val fields = CodedInputStream.newInstance(state.second)
-                assertEquals(16, fields.readTag()); assertTrue(fields.readBool()) // isNeedShow; id, display and STARTED are 0.
-                assertEquals(40, fields.readTag()); assertTrue(fields.readInt64() > 0)
+                // parseAppStateChangedMessage in the car rejects any other type.
+                assertEquals(UCarFrameWriter.TYPE_SEND_SYNC, state.first.messageType); assertNotEquals(42L, state.first.sequence)
+                assertEquals("app_state_changed; tipo=3; campos=[2=1]", sent.poll(3, java.util.concurrent.TimeUnit.SECONDS))
+                assertArrayEquals(byteArrayOf(16, 1), state.second) // isNeedShow; id, display and STARTED are 0.
+                carSend(UCarFrameWriter.TYPE_REQ, SessionControlServer.METHOD_GET_APP_DETAIL_REQUEST, ByteArray(0), 41)
+                val detail = until(SessionControlServer.METHOD_GET_APP_DETAIL_RESPONSE)
+                assertEquals(41L, detail.first.sequence); assertArrayEquals(CarAppMessages.appDetail(), detail.second)
+                // Nothing about the app is sent unrequested: the AION closed the session after an unrequested state.
+                repeat(4) {
+                    val header = ByteArray(20)
+                    try { input.readFully(header) } catch (_: java.net.SocketTimeoutException) { return@repeat }
+                    val parsed = UCarFrameReader.header(header)
+                    input.readFully(ByteArray(parsed.totalBytes - 20))
+                    assertNotEquals(SessionControlServer.METHOD_APP_STATE_CHANGED, parsed.method)
+                }
             }
         }
     }
@@ -126,6 +136,7 @@ class SessionControlServerTest {
         assertEquals(8, list.readTag()); assertEquals(1, list.readInt32()) // total must equal the entries sent.
         assertEquals(18, list.readTag())
         val app = CodedInputStream.newInstance(list.readByteArray())
+        assertEquals(8, app.readTag()); assertEquals(CarAppMessages.APP_ID, app.readInt32())
         assertEquals(18, app.readTag()); assertEquals("AionLink", app.readString())
         assertEquals(24, app.readTag()); assertEquals(1, app.readInt32())
         assertTrue(list.isAtEnd)
@@ -148,14 +159,14 @@ class SessionControlServerTest {
         }
         // id=7, RESUME, displayMode=1.
         val resume = UCarFrameWriter.varintField(1, 7) + UCarFrameWriter.varintField(3, 3) + UCarFrameWriter.varintField(4, 1)
-        assertEquals(mapOf(1 to 7L, 2 to 1L, 3 to 1L, 4 to 3L, 5 to 100L), fields(CarAppMessages.appState(resume, 100)!!))
+        assertEquals(mapOf(1 to 7L, 2 to 1L, 3 to 1L, 4 to 3L), fields(CarAppMessages.appState(resume)!!))
         // STOP without display mode: the car sends -1 and must not show anything.
         val stop = UCarFrameWriter.varintField(3, 1) + UCarFrameWriter.varintField(4, -1)
-        assertEquals(mapOf(3 to -1L, 4 to 1L, 5 to 100L), fields(CarAppMessages.appState(stop, 100)!!))
+        assertEquals(mapOf(3 to -1L, 4 to 1L), fields(CarAppMessages.appState(stop)!!))
         // UPDATE only changes the display mode of a visible app.
-        assertEquals(3L, fields(CarAppMessages.appState(UCarFrameWriter.varintField(3, 4), 100)!!)[4])
-        assertNull(CarAppMessages.appState(UCarFrameWriter.varintField(3, 9), 100))
-        assertNull(CarAppMessages.appState(byteArrayOf(0x12, 0x7F), 100))
+        assertEquals(3L, fields(CarAppMessages.appState(UCarFrameWriter.varintField(3, 4))!!)[4])
+        assertNull(CarAppMessages.appState(UCarFrameWriter.varintField(3, 9)))
+        assertNull(CarAppMessages.appState(byteArrayOf(0x12, 0x7F)))
     }
 
     @Test fun passiveChannelDoesNotAnswerAppRequests() {

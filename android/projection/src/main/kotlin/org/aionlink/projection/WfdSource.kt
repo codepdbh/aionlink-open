@@ -252,7 +252,7 @@ class WfdSource(
         val text = buildString {
             append(line).append("\r\n")
             append("Date: ").append(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME.format(java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC))).append("\r\n")
-            append("Server: AionLinkOpen/0.22\r\n")
+            append("Server: AionLinkOpen/0.25\r\n")
             headers.forEach { append(it).append("\r\n") }
             if (bytes.isNotEmpty()) append("Content-Length: ${bytes.size}\r\n")
             append("\r\n")

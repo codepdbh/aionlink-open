@@ -36,6 +36,7 @@ class SessionControlServer(
     /** false = passive encrypted listener (Samsung MEDIA 57229 / SENSOR 57239 server channels): ACK only. */
     private val active: Boolean = true,
     private val onFrame: (CarFrame) -> Unit = {},
+    private val onSent: (String) -> Unit = {},
     private val onStatus: (ControlChannelStatus) -> Unit
 ) : AutoCloseable {
     companion object {
@@ -65,7 +66,7 @@ class SessionControlServer(
             "get_app_list_response", "get_app_detail_info_request", "get_app_detail_info_response", "invoke_app",
             "app_state_changed", "app_list_changed", "poi_address", "call_info", "pick_up_call")
 
-        fun methodName(method: Int): String = METHOD_NAMES.getOrNull(method - 1) ?: "desconocido"
+        fun methodName(method: Int): String = if (method == 0) "ack" else METHOD_NAMES.getOrNull(method - 1) ?: "desconocido"
     }
     private val key = sessionKey.copyOf().also { sessionKey.fill(0) }
     private val sequence = AtomicLong(1)
@@ -155,9 +156,13 @@ class SessionControlServer(
                 send(output, pbResponse, METHOD_GET_APP_LIST_RESPONSE, CarAppMessages.appList(), sequence)
             method == METHOD_GET_APP_DETAIL_REQUEST && type == UCarFrameWriter.TYPE_REQ ->
                 send(output, pbResponse, METHOD_GET_APP_DETAIL_RESPONSE, CarAppMessages.appDetail(), sequence)
-            // UCarAdapter.startApp pauses the cast unless STARTED or RESUMED arrives within 3 s.
-            method == METHOD_INVOKE_APP -> CarAppMessages.appState(plain, System.currentTimeMillis())?.let {
-                send(output, UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_SEND), METHOD_APP_STATE_CHANGED, it)
+            // UCarAdapter.startApp pauses the cast unless STARTED or RESUMED arrives within 3 s. The car's parser only
+            // accepts SEND_SYNC here and acknowledges it, so a later ACK shows that its handler took the message.
+            method == METHOD_INVOKE_APP -> CarAppMessages.appState(plain)?.let {
+                val fields = mutableListOf<String>()
+                ProtoScan.walk(it, onVarint = { field, value -> fields += "$field=$value" })
+                send(output, UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_SEND_SYNC), METHOD_APP_STATE_CHANGED, it)
+                onSent("app_state_changed; tipo=3; campos=$fields")
             }
         }
     }

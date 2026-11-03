@@ -30,6 +30,12 @@ class ProjectionService : Service() {
         private const val EXTRA_DATA = "data"
         @Volatile var projection: MediaProjection? = null; private set
         @Volatile var lastError: String? = null; private set
+        @Volatile private var consumed = false
+        /** Android rejects a second virtual display from one MediaProjection, so each grant serves one connection. */
+        val captureReady get() = projection != null && !consumed
+
+        /** The grant for the stream starting now, or null when it is missing or a previous stream already used it. */
+        fun takeProjection(): MediaProjection? = projection?.takeUnless { consumed }?.also { consumed = true }
 
         fun start(context: Context, resultCode: Int, data: Intent) {
             val intent = Intent(context, ProjectionService::class.java).putExtra(EXTRA_CODE, resultCode).putExtra(EXTRA_DATA, data)
@@ -58,6 +64,7 @@ class ProjectionService : Service() {
             granted?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { projection = null }
             }, Handler(Looper.getMainLooper()))
+            consumed = false
             projection = granted; lastError = if (granted == null) "PROYECCION_NULA" else null
         } catch (_: SecurityException) { lastError = "SECURITY_EXCEPTION"; stopSelf() }
         return START_NOT_STICKY

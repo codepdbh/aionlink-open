@@ -106,6 +106,120 @@ El vídeo sigue a 1280x720. El coche declara `28` como formato nativo en
 `wfd_video_formats` (índice CEA 5, 1280x720p30) pero `display=1920:960`, así que la imagen
 podría verse deformada o con bandas. No se cambia aquí para probar una sola variable.
 
+## Resultado en el vehículo (0.22)
+
+Diagnóstico `aionlink-diagnostics (25).txt`, 9592 bytes, SHA-256
+`e50f48a53742791be70fa00276b939ce11eb0def4cd805f9d60337d849fd8c46`, y una fotografía con
+"ICCOA Carlink: SM-S938B connected" sin el aviso visible. El aviso podría ser temporal, así
+que la fotografía sola no demuestra que no saliera.
+
+**Confirmado en el vehículo:**
+
+- AUTH responde `workModes=0x4` con resultado 0, y M3 incluye `iccoa_support_fusion=supported`:
+  el coche entró en modo fusion. Esto valida la declaración del modo 4.
+- 0,25 s después de `PLAY` el coche envía los métodos 26 y 28, y sin fallos de descifrado sigue
+  conectado 31 s con heartbeats, así que lee o al menos tolera las respuestas.
+- Vídeo y audio salen sin error (878 unidades, 11 222 RTP, 1418 AAC).
+
+**No observado:** métodos 4 y 30. El coche no abrió la app en esos 31 s, y por eso no hay imagen.
+Falta saber si espera que se pulse algo en pantalla. Sigue sin demostrarse proyección o sesión ICCOA.
+
+## Segunda prueba y cambios en 0.23
+
+Diagnóstico `aionlink-diagnostics (26).txt`, 9550 bytes, SHA-256
+`bd0568971a364686a6da83c43325080f108e517052fdbeafb76b31e5adb77a2c`. Mismo resultado, con los
+métodos 26 y 28 repetidos 0,17 s después. Siguen sin llegar 4 ni 30. El propietario informa
+de que tras "connected" no aparece nada más, salvo un aviso breve de desconexión de Bluetooth.
+
+**Aviso de Bluetooth, hipótesis:** ya salía en la prueba de 0.21, con modo normal, así que no
+lo causa el modo 4. `UCarAdapter.handleBluetoothMac` avisa `onRethinkBluetoothConnect(true)`
+al recibir el método 22 si no hay registro previo, y el parámetro se llama `isCarLinkConnect`.
+El coche podría soltar el Bluetooth al pasar a CarLink, como parte del flujo normal. No está
+comprobado, y el firmware que decide no está disponible.
+
+**Qué abre la imagen:** `startApp` y `startCast` son API pública que sólo llama la aplicación
+del coche; nada del SDK los invoca. Dos caminos del teléfono llegan a esa aplicación:
+
+- Método 31 con `isNeedShow` → `IPhoneDataListener.onAppStateChanged`.
+- Método 7 con estado 3 → `notifyConnectStateChanged(7)`. Está en el protocolo, pero Samsung
+  (`lb/g.M`) sólo envía los estados 0, 1 y 2.
+
+**0.23**, tras el primer método 28 y una vez por sesión, envía el método 31 en el siguiente
+heartbeat y el método 7 en el siguiente; cada envío queda en el registro. **Es un experimento:
+ningún cliente local lo hace**, y se desconoce qué hace el firmware con esas señales.
+
+## Resultado de 0.24 y cambios en 0.25
+
+Diagnósticos `aionlink-diagnostics (29).txt`, `(30).txt` y `(31).txt`, hashes en
+`docs/PROGRESS.md`, y una fotografía del propietario.
+
+**Confirmado en el vehículo:**
+
+- El coche añade "AionLink Open" a su menú y muestra el icono "AionLink". Lee y usa la lista.
+- Al pulsar el icono llegan los métodos 4 (tipo 0) y 30 (tipo 3), como en `UCarAdapter.startApp`.
+- Tras el método 30, CONTROL falla 63 ms y 66 ms después, en dos intentos; RTSP, MEDIA y SENSOR
+  se cierran en el mismo milisegundo o casi. Sin pulsar, 0.22 seguía conectada a los 31 s.
+- Sin captura preparada, 0.24 bloquea el intento y avisa (02:12:47 en el diagnóstico 29).
+
+**Defecto propio, confirmado por análisis estático:** `UCarControlProtocol.parseAppStateChangedMessage`
+exige `SEND_SYNC`, y 0.22 a 0.24 enviaban `SEND`. El constructor no fija el tipo; lo hace
+`SocketChannel.sendWithAck`, por eso el error no se veía leyendo `createAppStateChangedMessage`.
+El coche nunca aceptó el mensaje.
+
+**Causa del cierre, sin demostrar.** En MiAuto 0.1.1, `SocketChannel.onMessage` captura la
+excepción, la registra y no envía ACK, así que el tipo no explica el cierre en esa versión.
+El coche usa el SDK `v2.0.2-202503242133`, cuyo código no se ha visto. El cierre siguió a este
+mensaje en 0.23 y 0.24. Otra posibilidad: el cierre lo causa abrir el vídeo (`startCast`) y no el
+mensaje, aunque en 0.23 ocurrió sin pulsar nada.
+
+**0.25** cambia sólo ese tipo y registra el envío con sus campos y los ACK del coche.
+
+| Resultado de 0.25 | Lectura | Siguiente paso |
+|---|---|---|
+| Sin cierre, con imagen | el tipo era la causa | ajustar tamaño y táctil |
+| Sin cierre, sin imagen, ACK tras el envío | el coche aceptó el mensaje | revisar decodificación |
+| Cierre sin ACK tras el envío | sigue rechazando o cierra antes | probar a no responder a `InvokeApp` |
+| Cierre con ACK tras el envío | aceptó el mensaje y falla lo siguiente | revisar `startCast`, SPS y tamaño |
+
+## Resultado de 0.23 y cambios en 0.24
+
+Diagnósticos `aionlink-diagnostics (27).txt` y `(28).txt`, hashes en `docs/PROGRESS.md`. El
+propietario informa de un error "no compatible o algo así", sin texto exacto.
+
+**Confirmado en el vehículo:**
+
+- Intento 1: `app_state_changed` sale a las 01:53:40,873 y CONTROL falla a las 01:53:40,957, 84 ms
+  después; RTSP, MEDIA, SENSOR y UIBC se cierran a la vez. El método 7 no llegó a enviarse.
+- 0.22, sin ese aviso, seguía conectada a los 31 s. Id 2 tampoco impidió leer lista y detalles.
+- Intento 2: `START_SecurityException` al crear la captura con un permiso ya usado. Sin vídeo,
+  el coche cierra a los 10 s, como en pruebas anteriores.
+
+**Inferencia:** el aviso provocó el cierre del intento 1, por la proximidad en el tiempo. Se
+desconoce por qué lo rechaza el firmware. `onAppStateChanged` entrega el tamaño de la fuente, que
+podría seguir sin fijar a los 2 s, pero no está comprobado. **Tampoco consta qué cierre mostró el
+error.** En la prueba de 0.19 un texto parecido coincidía con el cierre a los 10 s.
+
+**0.24:** se retiran ambos avisos y `AppStateChanged` sólo responde a `InvokeApp`. Con AUTH
+automático no se inicia la conexión sin una captura sin usar. Si un `InvokeApp` real recibe esa
+respuesta y el coche cierra, el problema está en ese mensaje y no en haberlo enviado sin petición.
+
+| Resultado de 0.24 | Lectura | Siguiente paso |
+|---|---|---|
+| Cierre sin envíos | el id 2 u otro factor | volver al id 0 |
+| Conectado sin 4 ni 30, también tras pulsar | el coche no reacciona a su interfaz | probar sólo el método 7, categoría y lista |
+| Llegan 4 y 30 sin imagen | abre la app, pero no decodifica | revisar SPS, PTS y tamaño |
+| Llegan 4 y 30 y luego cierre | rechaza la respuesta | revisar `AppStateChanged` |
+
+## Cómo interpretar la prueba de 0.23
+
+| Resultado | Lectura | Siguiente paso |
+|---|---|---|
+| Aparece imagen tras los envíos | el coche abre la proyección por estas señales | ver cuál basta y ajustar tamaño y táctil |
+| Llegan 4 y 30 sin imagen | el coche abre la app, pero no decodifica | revisar SPS, PTS y tamaño |
+| Pantalla negra o "Loading" nuevo | `startCast` activo sin imagen | revisar decodificación |
+| Corte o desconexión justo tras un envío | la señal molesta en este firmware | retirar esa señal |
+| Nada cambia | el coche sólo reacciona a su interfaz o a otro mensaje | revisar categoría y lista de apps |
+
 ## Cómo interpretar la siguiente prueba
 
 | Resultado | Lectura | Siguiente paso |
