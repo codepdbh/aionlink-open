@@ -1,5 +1,11 @@
 # Cambios
 
+## 0.22.0-research — 2026-11-02
+
+- AUTH declara también el modo 4 (`APP_FULLSCREEN_CAST`), el único que el AION informa, por el error "integrated desktop screen casting".
+- CONTROL responde a la lista de apps, sus detalles e `InvokeApp` con una única app propia que representa el espejo del teléfono.
+- 0.21 confirmó en el AION el texto del error y `workModes=4`; 0.22 sin verificar con el AION.
+
 ## 0.21.0-research — 2026-11-02
 
 - Al recibir `disconnect` (método 23) del coche se detienen vídeo y canales; antes se ignoraba.

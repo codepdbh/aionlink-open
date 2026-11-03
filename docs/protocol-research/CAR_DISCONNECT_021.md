@@ -64,6 +64,9 @@ Direcciones de `lib/arm64-v8a/libovmsink.so`:
 
 ## Sin determinar
 
+El diagnóstico (24) aportó el texto del error y otra causa probable; ver
+[FUSION_MODE_022.md](FUSION_MODE_022.md). Lo que sigue describe lo sabido en 0.21.
+
 No se sabe qué dice el error ni qué lo provoca. Tampoco por qué el coche pidió
 desconectar: pudo ser un temporizador de su interfaz o una acción en pantalla. Se
 desconocen dos de los 23 mensajes, los que no entran en los ocho últimos, y no consta
