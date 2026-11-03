@@ -206,6 +206,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Táctil y audio 0.19](docs/protocol-research/TOUCH_AUDIO_019.md) | UIBC por accesibilidad, audio AAC en el flujo, MEDIA/SENSOR |
 | [RTP sobre TCP 0.20](docs/protocol-research/RTP_TCP_020.md) | Bloqueo en M3, sink del coche y significado del 80 % |
 | [Desconexión del coche 0.21](docs/protocol-research/CAR_DISCONNECT_021.md) | Método 23 con vídeo en curso e hipótesis descartadas |
+| [Modo integrado 0.22](docs/protocol-research/FUSION_MODE_022.md) | Error "integrated desktop", `workModes=4` y mensajes de apps |
 | [Comparación de conexión](docs/protocol-research/CONNECTION_RESEARCH_2026-10-28.md) | Samsung, Xiaomi, CarLife y ruta hacia sesión verificable |
 | [Diagnóstico S25](docs/protocol-research/S25_DIAGNOSIS.md) | Fallos OEM observados por ADB y sus límites |
 | [Formato UCar](docs/protocol-research/UCAR_OBSERVED_FORMAT.md) | Cabecera y UUID observados; sin sesión verificada |

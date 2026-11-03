@@ -23,7 +23,7 @@ object ExperimentalAuthExchange {
         var reply: ByteArray? = null
         var confirm: ByteArray? = null
         try {
-            ExperimentalNormalAuth(pin, clientId, model, ExperimentalAuthWire.OBSERVED_CLIENT_WORK_MODES).use { attempt ->
+            ExperimentalNormalAuth(pin, clientId, model, ExperimentalAuthWire.CLIENT_WORK_MODES).use { attempt ->
                 val request = attempt.request()
                 val sequence = ExperimentalAuthWire.FIRST_SEQUENCE
                 try { frame = ExperimentalAuthWire.requestFrame(request, sequence, System.currentTimeMillis() / 1000) }

@@ -27,8 +27,9 @@ data class CarFrame(val category: Int, val method: Int, val messageType: Int)
  * Phone-side CONTROL listener observed in Samsung (r5/f.java: SocketChannel(CONTROL, server=true, encrypted=true),
  * bound to the phone's group address on port 57219). Headers are clear; bodies use the AUTH session envelope.
  * Sends the observed 2 s heartbeat (method 1), an empty BluetoothMacInfo (method 22, SEND_SYNC) on connect and one
- * GetUCarConfigRequest (method 24, REQ, as in Samsung lb/g.d), and acknowledges SEND_SYNC frames.
- * Payloads are never exported, except the allowlisted fields of [CarConfigSummary].
+ * GetUCarConfigRequest (method 24, REQ, as in Samsung lb/g.d), acknowledges SEND_SYNC frames and answers the
+ * fusion cast app requests with [CarAppMessages]. Payloads are never exported, except the allowlisted fields of
+ * [CarConfigSummary].
  */
 class SessionControlServer(
     private val local: InetAddress, sessionKey: ByteArray, private val port: Int = PORT,
@@ -47,6 +48,12 @@ class SessionControlServer(
         const val METHOD_DISCONNECT = 23
         const val METHOD_GET_CONFIG_REQUEST = 24
         const val METHOD_GET_CONFIG_RESPONSE = 25
+        const val METHOD_GET_APP_LIST_REQUEST = 26
+        const val METHOD_GET_APP_LIST_RESPONSE = 27
+        const val METHOD_GET_APP_DETAIL_REQUEST = 28
+        const val METHOD_GET_APP_DETAIL_RESPONSE = 29
+        const val METHOD_INVOKE_APP = 30
+        const val METHOD_APP_STATE_CHANGED = 31
 
         /** UCarControlProtocol names in MiAuto, matching xa/s in Samsung; for diagnostics only. */
         private val METHOD_NAMES = listOf("heartbeat", "get_port_request", "get_port_response", "notify_car_to_foreground",
@@ -119,17 +126,13 @@ class SessionControlServer(
             input.readFully(body)
             received.incrementAndGet()
             synchronized(methods) { methods += parsed.category * 1000 + parsed.method }
-            if (body.isNotEmpty()) {
-                try {
-                    val plain = ExperimentalAuthCrypto.sessionOpen(key, body)
-                    if (parsed.category == UCarFrameWriter.CATEGORY_CONTROL && parsed.method == METHOD_GET_CONFIG_RESPONSE) {
-                        carConfig = CarConfigSummary.of(plain)
-                    }
-                    plain.fill(0)
-                } catch (_: Exception) { failures.incrementAndGet() }
-                body.fill(0)
-            }
-            if (parsed.category == UCarFrameWriter.CATEGORY_CONTROL && parsed.method == METHOD_HEARTBEAT) heartbeatsIn.incrementAndGet()
+            // Proto3 omits defaults, so InvokeApp{id=0, START, displayMode=0} legitimately arrives with an empty body.
+            val plain = if (body.isEmpty()) ByteArray(0) else try { ExperimentalAuthCrypto.sessionOpen(key, body) }
+                catch (_: Exception) { failures.incrementAndGet(); null }
+            body.fill(0)
+            val control = parsed.category == UCarFrameWriter.CATEGORY_CONTROL
+            if (control && parsed.method == METHOD_GET_CONFIG_RESPONSE && plain != null) carConfig = CarConfigSummary.of(plain)
+            if (control && parsed.method == METHOD_HEARTBEAT) heartbeatsIn.incrementAndGet()
             if (parsed.messageType == UCarFrameWriter.TYPE_SEND_SYNC) {
                 // SocketChannel.onMessage → UCarMessage.obtainAckMessage(seq): RAW, RES, category ACK, method 0.
                 val ack = UCarFrameWriter.frame(UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_RAW, UCarFrameWriter.TYPE_RES),
@@ -137,8 +140,25 @@ class SessionControlServer(
                 synchronized(output) { output.write(ack); output.flush() }
                 acks.incrementAndGet()
             }
+            if (active && control && plain != null) answerCarApp(parsed.method, parsed.messageType, parsed.sequence, plain, output)
+            plain?.fill(0)
             publish()
             onFrame(CarFrame(parsed.category, parsed.method, parsed.messageType))
+        }
+    }
+
+    /** Requests MiAuto's ControlManager sends in fusion cast. Its getAppList/getAppDetailInfo time out after 3 s. */
+    private fun answerCarApp(method: Int, type: Int, sequence: Long, plain: ByteArray, output: OutputStream) {
+        val pbResponse = UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_RES)
+        when {
+            method == METHOD_GET_APP_LIST_REQUEST && type == UCarFrameWriter.TYPE_REQ ->
+                send(output, pbResponse, METHOD_GET_APP_LIST_RESPONSE, CarAppMessages.appList(), sequence)
+            method == METHOD_GET_APP_DETAIL_REQUEST && type == UCarFrameWriter.TYPE_REQ ->
+                send(output, pbResponse, METHOD_GET_APP_DETAIL_RESPONSE, CarAppMessages.appDetail(), sequence)
+            // UCarAdapter.startApp pauses the cast unless STARTED or RESUMED arrives within 3 s.
+            method == METHOD_INVOKE_APP -> CarAppMessages.appState(plain, System.currentTimeMillis())?.let {
+                send(output, UCarFrameWriter.flags(1, UCarFrameWriter.FORMAT_PB3, UCarFrameWriter.TYPE_SEND), METHOD_APP_STATE_CHANGED, it)
+            }
         }
     }
 
@@ -159,9 +179,10 @@ class SessionControlServer(
         } catch (_: IOException) { } catch (_: InterruptedException) { }
     }
 
-    private fun send(output: OutputStream, flags: Int, method: Int, plain: ByteArray) {
+    /** A response passes the request's sequence, as UCarMessage.updateSeqId does; other frames take the next one. */
+    private fun send(output: OutputStream, flags: Int, method: Int, plain: ByteArray, responseTo: Long? = null) {
         val body = if (plain.isEmpty()) plain else ExperimentalAuthCrypto.sessionSeal(key, plain)
-        val seq = sequence.getAndIncrement().let { if (it > 0x7fffffffL) { sequence.set(2); 1L } else it }
+        val seq = responseTo ?: sequence.getAndIncrement().let { if (it > 0x7fffffffL) { sequence.set(2); 1L } else it }
         val frame = UCarFrameWriter.frame(flags, UCarFrameWriter.CATEGORY_CONTROL, method, body, seq, System.currentTimeMillis() / 1000)
         synchronized(output) { output.write(frame); output.flush() }
         plain.fill(0)

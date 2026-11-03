@@ -1207,3 +1207,35 @@ Incompleto: la solicitud de configuracion (metodo 24) y la detencion por metodo 
 se probaron con coche sintetico. No se inicio busqueda, GATT, P2P ni AUTH; la prueba
 con el AION sigue pendiente. Commit a main pedido por el propietario; TXT, APK y
 extracted/ siguen privados.
+
+## 0.22 - Modo integrado (workModes 4) tras el error en pantalla - 2026-11-02
+
+Diagnostico de 0.21 copiado por ADB a private/vehicle-tests-2026-11-02/: (24), 15 619
+bytes, SHA-256 `07973590646f335640d5e3cc7f4c95150962d90791df2fc0ffbccafcc61ce039`, y tres
+fotografias del propietario (no copiadas al repositorio). Hardware: el coche muestra "Your
+phone does not support integrated desktop screen casting" a 80 %, declara workModes=4 en
+su configuracion y responde 0x1 en AUTH. Sin video cierra a unos 10 s; con video seguia
+conectado a los 44 s, sin metodos 4, 23, 26, 28 ni 30. Sigue sin imagen y sin sesion
+ICCOA verificada. Hipotesis y evidencia en protocol-research/FUSION_MODE_022.md.
+
+Analisis estatico con llvm-objdump del NDK 28.2.13676358 sobre libovmsink.so extraida al
+scratchpad, sin cargarla. Samsung 3.1.02.20 declara solo el modo 1 y no responde a 26, 28
+ni 30: no hay referencia local de telefono con modo 4.
+
+Incidencias: `adb` no esta en PATH (se usa la ruta del SDK). El primer recuento de JVM dio
+118 porque incluia 16 resultados antiguos de testReleaseUnitTest; el valido es 102. Sigue
+sin corregir el error NewApi de UsbAccessoryClient.kt:156 anotado en 0.21.
+
+Binario 0.22.0-research, versionCode 22, 24 860 389 bytes, SHA-256
+`eb615ec1fb25d22b5f03e878c5001afef71fb171cb79f073960de4bf079da602`. Validacion: 6 Python y
+102 JVM (82 + 20) correctas, con fixtures sinteticos. Lint de :app 0 errores/11
+advertencias; :transport-wifi sin avisos. Las 20 instrumentadas no se repitieron: la
+interfaz solo cambia el numero de version. Instalacion con install -r: permisos y
+accesibilidad conservados; MainActivity WARM/Status ok 242 ms; v0.22.0 visible; cero
+lineas en el buffer crash del UID propio.
+
+Incompleto: workModes 261 y las respuestas a 26, 28 y 30 solo se probaron con coche
+sintetico. No se inicio busqueda, GATT, P2P ni AUTH desde el PC; la prueba con el AION
+sigue pendiente. Commit a main pedido por el propietario; TXT, fotografias, APK y
+extracted/ siguen privados. El coche no admite instalar aplicaciones: todo el codigo
+corre en el telefono y el receptor ICCOA de fabrica no se modifica.

@@ -48,7 +48,7 @@ class ExperimentalAuthExchangeTest {
             if (tag in listOf(18, 26, 34, 42, 50)) values[tag] = proto.readByteArray()
             else if (tag == 80) workModes = proto.readInt32() else proto.skipField(tag)
         }
-        check(decoded.sequence == 1L && workModes == 257)
+        check(decoded.sequence == 1L && workModes == 261)
         val localAuth = values.getValue(18); val localAgreement = values.getValue(34); val localNonce = values.getValue(50)
         val clientKey = MessageDigest.getInstance("SHA-256").digest(localNonce + "123456".toByteArray())
         val expectedClientProof = Mac.getInstance("HmacSHA256").run { init(SecretKeySpec(clientKey, "HmacSHA256")); doFinal(localAuth) }

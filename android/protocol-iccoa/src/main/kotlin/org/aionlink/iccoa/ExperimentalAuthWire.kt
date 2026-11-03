@@ -10,6 +10,8 @@ object ExperimentalAuthWire {
     const val MAX_BODY = 4096
     /** Samsung ShareLinkService work modes: NORMAL_CAST (1) | MIRROR_WINDOW_CAST (256). Result 4 rejects modes. */
     const val OBSERVED_CLIENT_WORK_MODES = 1 or 256
+    /** Adds APP_FULLSCREEN_CAST (4), the only mode the AION reports in GetUCarConfigResponse.workModes. */
+    const val CLIENT_WORK_MODES = OBSERVED_CLIENT_WORK_MODES or 4
     /** Samsung SequenceGenerator starts at 1; the peer's MessageHeader.updateSeqId rejects values <= 0. */
     const val FIRST_SEQUENCE = 1L
 
