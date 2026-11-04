@@ -2,9 +2,17 @@ package org.aionlink.open
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
+import android.graphics.Color
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.os.SystemClock
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.widget.LinearLayout
+import android.widget.TextView
 import org.aionlink.projection.UibcEvent
 
 /**
@@ -24,11 +32,41 @@ class TouchInjectionService : AccessibilityService() {
 
     private class Stroke(val path: Path, val startedAt: Long, var lastX: Float, var lastY: Float)
     private var stroke: Stroke? = null
+    private var carButtons: View? = null
 
     override fun onServiceConnected() { instance = this }
-    override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
+    override fun onDestroy() { hideCarButtons(); if (instance === this) instance = null; super.onDestroy() }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
     override fun onInterrupt() = Unit
+
+    fun openCarLauncher() {
+        startActivity(Intent(this, CarLauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** Back and home for the car, which has neither button for the phone's apps. Called on the main thread. */
+    fun showCarButtons() {
+        if (carButtons != null) return
+        fun button(text: String, action: () -> Unit) = TextView(this).apply {
+            this.text = text; textSize = 28f; gravity = Gravity.CENTER
+            setTextColor(Color.WHITE); setBackgroundColor(0xB0000000.toInt()); setPadding(32, 24, 32, 24)
+            setOnClickListener { action() }
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(button("◀") { performGlobalAction(GLOBAL_ACTION_BACK) })
+            addView(button("⌂") { openCarLauncher() })
+        }
+        val params = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT)
+        params.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        getSystemService(WindowManager::class.java).addView(panel, params)
+        carButtons = panel
+    }
+
+    fun hideCarButtons() {
+        carButtons?.let { getSystemService(WindowManager::class.java).removeView(it) }
+        carButtons = null
+    }
 
     /** [x]/[y] are already mapped to phone-screen pixels. Called on the main thread. */
     fun touch(action: Int, x: Float, y: Float) {

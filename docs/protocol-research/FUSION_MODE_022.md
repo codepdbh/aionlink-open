@@ -148,6 +148,19 @@ del coche; nada del SDK los invoca. Dos caminos del teléfono llegan a esa aplic
 heartbeat y el método 7 en el siguiente; cada envío queda en el registro. **Es un experimento:
 ningún cliente local lo hace**, y se desconoce qué hace el firmware con esas señales.
 
+## Resultado de 0.25 en el vehículo
+
+Diagnóstico `aionlink-diagnostics2.txt`, hash en `docs/PROGRESS.md`. **El propietario informa de
+que la proyección funcionó "casi perfecto"; es la primera imagen en el AION.** No hay fotografía
+ni texto sobre qué parte falló.
+
+**Confirmado en el diagnóstico:** tras `app_state_changed` con tipo 3 llega un ACK en 7 ms. El
+coche envía métodos 30 (START y RESUME), 28 y 4, y la sesión sigue 57 s hasta que el propietario
+pulsa Detener, con 3875 unidades de vídeo, 37 841 RTP y 2757 AAC. Esto apoya que el tipo era la
+causa del cierre. Sin pedirlo, UIBC registra 0 eventos: no consta si se tocó la pantalla.
+
+El segundo `InvokeApp` llega con `displayMode=-1`, y 0.25 lo copia. Se desconoce si importa.
+
 ## Resultado de 0.24 y cambios en 0.25
 
 Diagnósticos `aionlink-diagnostics (29).txt`, `(30).txt` y `(31).txt`, hashes en

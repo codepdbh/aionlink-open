@@ -78,22 +78,35 @@ class ScreenEncoder(
     private val projection: MediaProjection, private val width: Int, private val height: Int, private val fps: Int,
     private val onAccessUnit: (ByteArray, Long, Boolean) -> Unit, private val onError: (String) -> Unit
 ) : AutoCloseable {
+    companion object {
+        /**
+         * VideoPlayerV2 decodes FIFO at a hinted fps + 15 and VideoQueueManager only drops its backlog at a keyframe with
+         * 50 or more frames queued, so sending above the negotiated rate delays the image by up to about a second. A
+         * mirrored display follows the phone's refresh rate unless the frame rate is capped.
+         */
+        fun format(width: Int, height: Int, fps: Int): MediaFormat =
+            MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, if (width >= 1280) 6_000_000 else 2_500_000)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setInteger(MediaFormat.KEY_LATENCY, 1)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+                setInteger(MediaFormat.KEY_LEVEL, if (width >= 1280) MediaCodecInfo.CodecProfileLevel.AVCLevel31 else MediaCodecInfo.CodecProfileLevel.AVCLevel3)
+                setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / fps)
+                setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+            }
+    }
+
     private var codec: MediaCodec? = null
     private var display: VirtualDisplay? = null
     @Volatile private var running = false
     private var csd: ByteArray? = null
 
     fun start(densityDpi: Int) {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, if (width >= 1280) 6_000_000 else 2_500_000)
-            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            setInteger(MediaFormat.KEY_LEVEL, if (width >= 1280) MediaCodecInfo.CodecProfileLevel.AVCLevel31 else MediaCodecInfo.CodecProfileLevel.AVCLevel3)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / fps)
-            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-        }
+        val format = format(width, height, fps)
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         val surface = encoder.createInputSurface()

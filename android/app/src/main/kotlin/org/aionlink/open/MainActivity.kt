@@ -51,7 +51,33 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private val mutableEvents = MutableStateFlow(listOf("Cliente de investigación iniciado. Compatibilidad sin verificar."))
     val events = mutableEvents.asStateFlow()
     val usb = UsbAccessoryClient(application, ::event)
-    val projection = ProjectionSession(application, ::event)
+    val savings = PhoneSavings(application, ::event)
+    val projection = ProjectionSession(application, savings, ::event)
+    private var displayProbe: OwnDisplayProbe? = null
+    private val probeEnd = Runnable { stopDisplayProbe() }
+    private val probeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val mutableProbeRunning = MutableStateFlow(false)
+    val probeRunning = mutableProbeRunning.asStateFlow()
+    /** Local test without the car: lets the owner lock the phone and read in the export whether frames continue. */
+    fun startDisplayProbe() {
+        if (displayProbe != null) return
+        // Long enough for several reports with the phone locked: a brief lock says little.
+        try {
+            displayProbe = OwnDisplayProbe(getApplication(), onReport = ::event).also { it.start() }
+            mutableProbeRunning.value = true
+            event("Sonda de pantalla propia iniciada; bloquea el teléfono y déjalo así unos 30 s")
+            probeHandler.postDelayed(probeEnd, 40_000)
+        } catch (error: RuntimeException) {
+            displayProbe?.close(); displayProbe = null
+            event("Sonda de pantalla propia falló: ${error.javaClass.simpleName}")
+        }
+    }
+    private fun stopDisplayProbe() {
+        probeHandler.removeCallbacks(probeEnd)
+        displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}"); it.close() }
+        displayProbe = null
+        mutableProbeRunning.value = false
+    }
     fun captureGranted(resultCode: Int, data: android.content.Intent?) {
         if (resultCode != android.app.Activity.RESULT_OK || data == null) { event("Captura de pantalla no autorizada"); return }
         ProjectionService.start(getApplication(), resultCode, data)
@@ -232,7 +258,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.25.0-research")
+        appendLine("AionLink Open 0.28.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -278,7 +304,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("Receptor wfd_uibc_capability=${rtsp.sinkUibc}")
         appendLine(projection.auxiliary.value)
         val video = projection.stream.value
-        appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}")
+        appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}; cuadros/s=${video.fps}; escrituras lentas=${video.slowWrites}")
+        appendLine("Lanzador: activado=${savings.launcher.value}; horizontal=${savings.landscape.value}; apps elegidas=${CarLauncherActivity.chosenCount(getApplication())}")
+        appendLine("Ahorro: brillo mínimo=${savings.enabled.value}; permiso ajustes=${savings.canWrite}; batería: ${savings.summary()}")
         appendLine("Audio: ${video.audio}; tramas AAC=${video.audioFrames}")
         val touch = projection.touch.value
         appendLine("Táctil UIBC: ${touch.stage}; eventos=${touch.events}; aplicados=${touch.injected}; fuera de imagen=${touch.outside}; accesibilidad activa=${TouchInjectionService.instance != null}; sin coordenadas")
@@ -291,6 +319,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         append(events.value.joinToString("\n"))
     }
     init {
+        savings.restorePending()
         viewModelScope.launch { bootstrap.state.collect {
             event("Intercambio BLE: ${it.stage}; ${it.message}")
             if (it.stage in setOf(org.aionlink.bluetooth.BootstrapStage.ERROR, org.aionlink.bluetooth.BootstrapStage.CANCELLED) && bootstrap.state.value == it) {
@@ -327,7 +356,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
     } } }
-    override fun onCleared() { stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
+    override fun onCleared() { stopDisplayProbe(); stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -358,6 +387,10 @@ class MainActivity : ComponentActivity() {
     val videoStream by model.projection.stream.collectAsStateWithLifecycle()
     val touchState by model.projection.touch.collectAsStateWithLifecycle()
     val auxiliary by model.projection.auxiliary.collectAsStateWithLifecycle()
+    val minBrightness by model.savings.enabled.collectAsStateWithLifecycle()
+    val probeRunning by model.probeRunning.collectAsStateWithLifecycle()
+    val carLauncher by model.savings.launcher.collectAsStateWithLifecycle()
+    val forceLandscape by model.savings.landscape.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         model.captureGranted(result.resultCode, result.data)
     }
@@ -445,7 +478,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.25.0")
+            Text("Cliente USB + Bluetooth experimental • v0.28.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -459,7 +492,23 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
             OutlinedButton(onClick = {
                 context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }, modifier = Modifier.fillMaxWidth()) { Text("Activar táctil del coche (accesibilidad)") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (TouchInjectionService.instance == null) "Táctil del coche INACTIVO: pulsa y actívalo en accesibilidad" else "Táctil del coche activo (accesibilidad)") }
+            Button(onClick = { context.startActivity(Intent(context, CarLauncherActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()) { Text("Abrir lanzador y elegir mis apps") }
+            OutlinedButton(onClick = { model.savings.setLauncher(!carLauncher) },
+                modifier = Modifier.fillMaxWidth()) { Text(if (carLauncher) "Lanzador al abrir AionLink en el coche: activado" else "Lanzador desactivado: solo compartir pantalla") }
+            OutlinedButton(onClick = {
+                if (forceLandscape || model.savings.canWrite) model.savings.setLandscape(!forceLandscape)
+                else context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (forceLandscape) "Horizontal al proyectar: activado" else "Horizontal al proyectar: desactivado") }
+            OutlinedButton(onClick = {
+                if (minBrightness || model.savings.canWrite) model.savings.setEnabled(!minBrightness)
+                else context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (minBrightness) "Brillo mínimo al proyectar: activado" else "Brillo mínimo al proyectar: desactivado") }
+            OutlinedButton(onClick = { model.startDisplayProbe() }, enabled = !probeRunning,
+                modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Sonda en curso: bloquea el teléfono" else "Probar pantalla propia con el teléfono bloqueado (40 s)") }
             Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")
             Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
             Text(auxiliary)
