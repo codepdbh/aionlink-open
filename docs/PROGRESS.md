@@ -1310,3 +1310,76 @@ install -r: permisos y accesibilidad conservados; MainActivity WARM/Status ok 29
 lineas en el buffer crash del UID propio. Prueba con el AION pendiente. Commit a main de
 0.23, 0.24 y 0.25 pedido por el propietario, sin esperar a esa prueba; TXT, fotografias, APK
 y extracted/ siguen privados.
+
+### Prueba de 0.25 en el AION - 2026-11-03
+
+Diagnosticos copiados por ADB a private/vehicle-tests-2026-11-03/: (32), 2758 bytes, SHA-256
+`53a457d9e938a47ffb7ccdf7d122867ddeeec79414c35c268cf28392c575d375`, sin sesion; y
+aionlink-diagnostics2.txt, 11 390 bytes, SHA-256
+`98b807b1ab5ac9373e8b26a52cb1cdd0bb550224f4238db5f2041d01da715f05`. Hardware: el propietario
+informa de que la proyeccion funciono "casi perfecto"; ACK de AppStateChanged en 7 ms y 57 s
+de sesion hasta Detener. UIBC 0 eventos. Verificacion de imagen por informe del propietario.
+
+Pendiente: el propietario pide ahorrar bateria, con la pantalla del telefono apagada, mediante
+un modo Android Auto. Android Auto exige un receptor certificado por Google; emularlo requiere
+credenciales privadas y queda fuera de AGENTS.md, por lo que no se implementa. Samsung Auto
+declara permisos de sistema (CAPTURE_VIDEO_OUTPUT, INTERNAL_SYSTEM_WINDOW, ADD_TRUSTED_DISPLAY,
+DEVICE_POWER) que explican su pantalla independiente y no estan al alcance de una app normal.
+Alternativas sin implementar, a decision del propietario; sin cambios de codigo en esta entrada.
+
+## 0.26 - Lag, ahorro y sonda de pantalla propia - 2026-11-03
+
+El propietario confirma que el tactil funciona, aunque el diagnostico anterior registra 0 eventos
+UIBC: no consta por que; esa sesion pudo no incluir toques. Descarta Shizuku y pide seguir con el
+plan sin eliminar el compartir pantalla. Open-headunit se descarta: incluye certificado y clave
+privada (res/raw/cert y privkey, contenido no abierto) y licencia AGPL-3.0. Detalle en
+protocol-research/LAG_SAVINGS_026.md.
+
+Binario 0.26.0-research, versionCode 26, 24 893 193 bytes, SHA-256
+`afebd093da1cfdf62eb9a75173ccad9ceb71161b7294c7eca7ccc171ac1c1610`. Validacion: 6 Python, 102
+JVM (82 + 20) y 3 instrumentadas nuevas en el S25 (OK, 3 tests): codificador 90,99 cuadros/s sin
+limite y 30,00 con limite. Las 20 instrumentadas anteriores no se repitieron. Lint de :app 0
+errores/16 advertencias (11 previas y avisos de estilo en PhoneSavings); :transport-wifi sin
+comprobar en detalle, compilado sin error. WRITE_SETTINGS se concedio con appops solo para la prueba y
+se devolvio a default; brillo 70 y modo 1 iguales al final; paquete de tests retirado. Instalacion
+con install -r: permisos y accesibilidad conservados; MainActivity COLD/Status ok 321 ms; cero
+lineas en el buffer crash del UID propio.
+
+Incompleto: ninguna mejora probada en el coche. Tamano de imagen sin cambiar a falta de evidencia.
+Sonda sin probar con el telefono bloqueado. Sin commit de 0.26.
+
+## 0.27 - Tactil caido por la prueba y sonda de dibujo directo - 2026-11-03
+
+Diagnosticos de 0.26 copiados por ADB a private/vehicle-tests-2026-11-03/:
+aionlink-diagnostics3.txt, 23 618 bytes, SHA-256
+`4e42d7ddae43f0faae8ef60d87ec9ef93639efbff8f049b929bf55a7735e77c0`, y aionlink-diagnostics4.txt,
+24 192 bytes, SHA-256 `51f26b407697e9aa2ef78dc65a1829ed01d81bd4a89733c8630c38b207fef818`. Hardware:
+mejor transmision segun el propietario, 31 cuadros/s y 0 escrituras lentas; 159 eventos UIBC y 0
+aplicados; video detenido con el telefono bloqueado. Detalle en protocol-research/LAG_SAVINGS_026.md.
+
+Error propio: las instrumentadas de 0.26 dejaron TouchInjectionService en Crashed services
+(inferencia por `am instrument`). Tras instalar 0.27 esta en Bound services y Crashed services esta
+vacio; tactil sin comprobar en el coche.
+
+Binario 0.27.0-research, versionCode 27, 24 893 213 bytes, SHA-256
+`91fabf05b991ec54bdf36728bdc89b556119b0bb01c0cf185ec32d8f3882dc50`. Validacion: 6 Python y 102 JVM
+(82 + 20). Lint de :app 0 errores/16 advertencias. Instrumentadas no ejecutadas a proposito; compiladas.
+MainActivity WARM/Status ok; cero lineas en el buffer crash del UID propio. Incompleto: dibujo directo sin
+ejecutar. Sin commit de 0.26 ni 0.27.
+
+## 0.28 - Lanzador propio sobre la pantalla compartida - 2026-11-03
+
+Binario 0.28.0-research, versionCode 28, 24 958 929 bytes, SHA-256
+`f5cafbbb5e1d04b33ca4e2a60736e3c0a01ac607f1d5fd5c12faa8dd732041fb`. Validacion: 6 Python y 104 JVM
+(84 + 20). Lint de :app 0 errores/26 advertencias. Instrumentadas no ejecutadas a proposito; compiladas.
+Instalacion con install -r: v0.28.0 visible; servicio tactil activo y Crashed services vacio; cero
+lineas en el buffer crash del UID propio.
+
+Incidencias: durante la comprobacion por ADB el lanzador aparecio en modo edicion tras un solo toque y
+user_rotation leyo 1 un momento; despues leia 0 con el telefono en vertical, ninguna app elegida y otra
+app en primer plano. Pudo deberse a que el propietario usaba el telefono; sin confirmar. La captura de
+pantalla fallo por la redireccion de PowerShell y no se repitio para no interferir.
+
+Incompleto: lanzador, botones superpuestos y horizontal sin probar en el coche. Sonda de dibujo directo
+sin ejecutar. Commit a main de 0.26, 0.27 y 0.28 pedido por el propietario, sin esperar a esa
+prueba; TXT, fotografias, APK y extracted/ siguen privados.

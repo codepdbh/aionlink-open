@@ -1,5 +1,26 @@
 # Cambios
 
+## 0.28.0-research — 2026-11-03
+
+- Lanzador propio con las apps que elige el propietario, abierto al pulsar AionLink en el coche; se puede desactivar para compartir pantalla sin más.
+- Botones de atrás e inicio sobre la pantalla compartida, para usarlos desde el táctil del coche.
+- Horizontal opcional durante la proyección, restaurado al terminar o tras un cierre inesperado.
+- Sigue siendo pantalla compartida: el teléfono debe estar encendido y desbloqueado. Sin verificar con el AION.
+
+## 0.27.0-research — 2026-11-03
+
+- El botón de accesibilidad avisa si el táctil está inactivo, y el registro indica si llegan toques sin servicio activo.
+- La sonda compara la vista en pantalla virtual con el dibujo directo, con el teléfono bloqueado.
+- 0.26 confirmó en el AION unos 30 cuadros/s y mejor transmisión, según informa el propietario; 0.27 sin verificar con el AION.
+
+## 0.26.0-research — 2026-11-03
+
+- El codificador se limita a los fps negociados y pide baja latencia, para evitar la cola de cuadros en el coche.
+- Brillo mínimo opcional durante la proyección, restaurado al terminar o tras un cierre inesperado.
+- El diagnóstico añade cuadros/s, escrituras lentas, batería por sesión y encendido o apagado de la pantalla.
+- Sonda local para saber si una pantalla propia sigue viva con el teléfono bloqueado.
+- 0.25 confirmó en el AION proyección y táctil, según informa el propietario; 0.26 sin verificar con el AION.
+
 ## 0.25.0-research — 2026-11-02
 
 - `AppStateChanged` se envía como `SEND_SYNC`, el único tipo que acepta el analizador del coche; antes iba como `SEND`.

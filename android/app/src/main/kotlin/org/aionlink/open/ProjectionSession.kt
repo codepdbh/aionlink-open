@@ -27,7 +27,8 @@ import java.net.Inet4Address
 import java.net.InetSocketAddress
 
 data class StreamStatus(val stage: String = "IDLE", val detail: String = "", val accessUnits: Long = 0,
-                        val datagrams: Long = 0, val audioFrames: Long = 0, val audio: String = "IDLE")
+                        val datagrams: Long = 0, val audioFrames: Long = 0, val audio: String = "IDLE",
+                        val fps: Long = 0, val slowWrites: Int = 0)
 data class TouchStatus(val stage: String = "IDLE", val events: Int = 0, val injected: Int = 0, val outside: Int = 0)
 
 /**
@@ -36,8 +37,12 @@ data class TouchStatus(val stage: String = "IDLE", val events: Int = 0, val inje
  * 15550). Video/audio come from the owner-approved MediaProjection. Status values are exported without
  * addresses, keys, coordinates or payloads.
  */
-class ProjectionSession(private val context: Context, private val event: (String) -> Unit) {
-    private companion object { const val MAX_LOGGED_FRAMES = 40 }
+class ProjectionSession(private val context: Context, private val savings: PhoneSavings, private val event: (String) -> Unit) {
+    private companion object {
+        const val MAX_LOGGED_FRAMES = 40
+        /** One frame at 30 fps is 33 ms; a TCP write this slow means the link or the car is holding the stream back. */
+        const val SLOW_WRITE_MS = 50L
+    }
     private val mutableControl = MutableStateFlow(ControlChannelStatus())
     val control = mutableControl.asStateFlow()
     private val mutableAux = MutableStateFlow("MEDIA IDLE • SENSOR IDLE")
@@ -63,6 +68,9 @@ class ProjectionSession(private val context: Context, private val event: (String
     @Volatile private var uibcKey: ByteArray? = null
     @Volatile private var mediaStage = "IDLE"
     @Volatile private var sensorStage = "IDLE"
+    @Volatile private var slowWrites = 0
+    private var touchWarned = false
+    private var launcherOpened = false
     val active get() = controlServer != null || source != null
 
     /** Called on the AUTH thread before AuthConfirm, so all listeners exist when the receiver connects. */
@@ -70,6 +78,8 @@ class ProjectionSession(private val context: Context, private val event: (String
         stop(null)
         localAddress = local
         uibcKey = sessionKey.copyOf()
+        touchWarned = false
+        launcherOpened = false
         val logged = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
         fun logFrame(label: String, frame: CarFrame) {
             if (logged.getOrPut(label) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet() > MAX_LOGGED_FRAMES) return
@@ -92,7 +102,7 @@ class ProjectionSession(private val context: Context, private val event: (String
                 if (frame.category == UCarFrameWriter.CATEGORY_CONTROL) when (frame.method) {
                     // Samsung lb/g.G: disconnect → notifyDisplayError(23); foreground → resumeDisplay.
                     SessionControlServer.METHOD_DISCONNECT -> main.post { stop("COCHE_PIDIO_DESCONEXION") }
-                    SessionControlServer.METHOD_CAR_TO_FOREGROUND -> encoder?.requestKeyframe()
+                    SessionControlServer.METHOD_CAR_TO_FOREGROUND -> { encoder?.requestKeyframe(); main.post { openLauncherOnce() } }
                 }
             }, onSent = { event("Canal CONTROL envió: $it") }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
@@ -116,12 +126,27 @@ class ProjectionSession(private val context: Context, private val event: (String
         } catch (_: java.io.IOException) { mutableRtsp.value = WfdStatus("BIND_FAILED") }
     }
 
+    /** The car opened AionLink: show the owner's apps once, then leave the phone wherever the owner takes it. */
+    private fun openLauncherOnce() {
+        if (launcherOpened || !savings.launcher.value) return
+        launcherOpened = true
+        val service = TouchInjectionService.instance
+        if (service == null) { event("Lanzador no abierto: el servicio de accesibilidad no está activo"); return }
+        service.showCarButtons()
+        service.openCarLauncher()
+        event("Lanzador abierto en el teléfono")
+    }
+
     private fun onUibc(input: UibcEvent) {
         val counted = mutableTouch.value.copy(events = mutableTouch.value.events + 1)
         mutableTouch.value = counted
         main.post {
             val service = TouchInjectionService.instance
-            if (service == null) { mutableTouch.value = mutableTouch.value.copy(stage = "SIN_ACCESIBILIDAD"); return@post }
+            if (service == null) {
+                mutableTouch.value = mutableTouch.value.copy(stage = "SIN_ACCESIBILIDAD")
+                if (!touchWarned) { touchWarned = true; event("Táctil: el coche envía toques, pero el servicio de accesibilidad no está activo") }
+                return@post
+            }
             when (input) {
                 is UibcEvent.Key -> service.key(input)
                 is UibcEvent.Touch -> {
@@ -171,6 +196,8 @@ class ProjectionSession(private val context: Context, private val event: (String
                 else -> "LPCM_NO_IMPLEMENTADO"
             }
             var last = 0L
+            val startedAt = System.currentTimeMillis()
+            slowWrites = 0
             val mode = play.mode
             videoWidth = mode.width; videoHeight = mode.height
             fun report() {
@@ -178,7 +205,8 @@ class ProjectionSession(private val context: Context, private val event: (String
                 if (now - last > 1000) {
                     last = now
                     mutableStream.value = StreamStatus("STREAMING", "${mode.width}x${mode.height}p${mode.fps}",
-                        streamer.accessUnits, streamer.datagramsSent, streamer.audioFrames, mutableStream.value.audio)
+                        streamer.accessUnits, streamer.datagramsSent, streamer.audioFrames, mutableStream.value.audio,
+                        streamer.accessUnits * 1000 / (now - startedAt).coerceAtLeast(1), slowWrites)
                 }
             }
             ScreenEncoder(granted, mode.width, mode.height, mode.fps, { unit, ptsUs, key ->
@@ -191,6 +219,7 @@ class ProjectionSession(private val context: Context, private val event: (String
                 }).also { audioCapture = it; it.start() }
             } catch (error: Exception) { mutableStream.value = mutableStream.value.copy(audio = "START_${error.javaClass.simpleName}") }
             event("Vídeo iniciado hacia el receptor: ${mode.width}x${mode.height}p${mode.fps}; audio=$audioState; táctil=${play.uibc}")
+            savings.onStreamStarted { streamer.accessUnits }
         } catch (error: Exception) { stopStream("START_${error.javaClass.simpleName}") }
     }
 
@@ -199,7 +228,11 @@ class ProjectionSession(private val context: Context, private val event: (String
         val output = socket.getOutputStream()
         var failed = false
         return { bytes ->
-            if (!failed) try { output.write(TsRtpStreamer.tcpFrame(bytes)) } catch (_: java.io.IOException) {
+            if (!failed) try {
+                val started = System.nanoTime()
+                output.write(TsRtpStreamer.tcpFrame(bytes))
+                if ((System.nanoTime() - started) / 1_000_000 >= SLOW_WRITE_MS) slowWrites++
+            } catch (_: java.io.IOException) {
                 failed = true
                 main.post { stopStream("RTP_TCP_IO") }
             }
@@ -207,6 +240,8 @@ class ProjectionSession(private val context: Context, private val event: (String
     }
 
     private fun stopStream(reason: String) {
+        main.post { TouchInjectionService.instance?.hideCarButtons() }
+        savings.onStreamStopped()
         audioCapture?.close(); audioCapture = null
         encoder?.close(); encoder = null
         datagrams?.close(); datagrams = null
