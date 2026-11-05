@@ -6,7 +6,7 @@ android {
         applicationId = if (project.hasProperty("aionlinkLab")) "org.aionlink.open.lab" else "org.aionlink.open"
         manifestPlaceholders["applicationLabel"] = if (project.hasProperty("aionlinkLab")) "AionLink Sonda" else "AionLink Open"
         minSdk = 29; targetSdk = 35
-        versionCode = 29; versionName = "0.29.0-research"
+        versionCode = 30; versionName = "0.30.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
