@@ -1572,3 +1572,35 @@ no instalada por firma distinta. APK lab 25 008 085 bytes SHA-256
 `f13e15e6bbc8b32ac44fcafe0eee37c1be302dfc757e61ff51f6a32b4084b004`, instalada;
 paquete de tests retirado y app original 0.28 preservada. El puente real DeX,
 audio/tactil y proyeccion con pantalla apagada siguen sin implementar o verificar.
+
+## 0.32 - diagnostico persistente de pantalla virtual - 2026-11-05
+
+La sonda virtual guarda hasta 150 muestras sinteticas de la ultima prueba en
+preferencias privadas e incluye ese historial al exportar. La marca
+EN_CURSO_O_INTERRUMPIDA no distingue un proceso muerto de una prueba activa;
+apply es asincrono y un cierre brusco puede perder muestras pendientes. Al iniciar
+otra prueba virtual se reemplaza el historial. Se registra tiempo monotono real del
+intervalo, estado del display principal ON/OFF/DOZE/otro, interactividad y bloqueo
+al final, junto a dibujos y H264 separados. El estado final no certifica todo el
+intervalo y el encoder puede repetir cuadros. La captura de pantalla se deshabilita
+en la UI mientras corre la sonda. No hay servicio foreground, receptor DeX, puente
+Android Auto ni envio al coche; espejo original sin cambios. Detalles en
+protocol-research/VIRTUAL_PROBE_PERSISTENCE_032.md.
+
+Validacion: Python 6, 108 JVM (9 core, 59 protocolo, 20 proyeccion, 4 Bluetooth,
+16 Wi-Fi), build y lint app 0 errores/29 advertencias. Android aislado lab:
+VirtualDisplayVideoProbeTest y VirtualProbeJournalTest OK (2 tests), 6,192 s.
+Los tests comprueban H264 y reporte sintetico, historial limitado, recuperacion
+por otra instancia y archivo privado escrito; no simulan muerte de proceso, pantalla
+apagada, DeX o coche. JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools
+35, Python 3.14.2, ADB 37.0.0. Primer intento `dumpsys media.codec` devolvio que
+no existe el servicio; se comprobo que no habia sonda activa con display/power.
+Logs artifacts/reports/android-build-0.32.log, android-lab-build-0.32-final.log y
+private/ui-test-0.32-virtual.txt. Se recompilo AndroidTest tras reforzar test disco.
+
+APK normal versionCode 32, 25 008 081 bytes SHA-256
+`69c3ae56ecc7dc1cfd4b571502145634f491b7279ce73591dc02bd9ec4534554`, no instalada
+por firma distinta. APK lab 25 008 085 bytes SHA-256
+`5aedf0028a3ba5f5b434d5bd3d491017b18cf65b1ef4d24d1480076ca29d8a1a`, instalada.
+Tests lab retirados; app original 0.28 y su servicio tactil Bound conservados.
+El propietario probara mas tarde; no se inicio coche ni APK terceros.

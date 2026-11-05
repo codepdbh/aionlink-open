@@ -11,10 +11,11 @@ class VirtualDisplayVideoProbeTest {
         val probe = VirtualDisplayVideoProbe(instrumentation.targetContext) { reports.add(it) }
         try {
             instrumentation.runOnMainSync { probe.start() }
-            Thread.sleep(4000)
+            Thread.sleep(6000)
             assertTrue("drawn=${probe.drawnFrames}; reports=$reports", probe.drawnFrames > 5)
             assertTrue("encoded=${probe.encodedFrames}; reports=$reports", probe.encodedFrames > 5)
             assertTrue("errors=$reports", reports.none { it.contains("error H264") })
+            assertTrue("missing interval/display report: $reports", reports.any { it.contains("intervalo ms=") && it.contains("pantalla principal=") })
         } finally { instrumentation.runOnMainSync { probe.close() } }
     }
 }
