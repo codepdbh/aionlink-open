@@ -1486,3 +1486,29 @@ Esto confirma disponibilidad TCP local, no negociacion, autenticacion, video, au
 entrada ni pantalla apagada. No se detecto un diagnostico nuevo de la sonda. No se
 ejecutaron APK de terceros desde el ordenador, ni se cambiaron codigo o APK; no hubo
 conexion al coche ni extraccion de credenciales. Tests de codigo no aplican.
+
+## 2026-11-05 - respuesta de version Android Auto del S25
+
+Implementada sonda aislada de version Android Auto, sin TLS ni credenciales, basada en
+observaciones de aasdk y documentacion publica, con longitudes y tiempo limitados;
+ver protocol-research/AA_VERSION_PROBE_2026-11-05.md. No se integra al espejo ni
+implementa receptor completo. Primera prueba local TIMEOUT 2,5 s, sin identificacion
+de fase; se solicito al propietario reiniciar servidor y acepto. Segunda prueba con
+la sonda de fase obtuvo RESPONSE 1.7, result=0 en 0,059 s. Este resultado solo prueba
+respuesta de version, no autenticacion, sesion, video ni pantalla apagada.
+
+Validacion: Python 6; JVM 108 (9 core, 59 protocolo, 20 proyeccion, 4 Bluetooth,
+16 Wi-Fi), build y lint app 0 errores/26 avisos. Instrumentacion de hardware opt-in
+en paquete lab: primer timeout (no es exito de protocolo); segunda prueba OK (1 test).
+Paquete de pruebas retirado, original 0.28 preservado y servicio tactil Bound, sin
+Crashed services. Fuentes sinteticas prueban respuesta, fragmentacion de lectura y
+rechazo de cabeceras invalidas o excesivas. No se inicio vehiculo ni APK de terceros,
+no se uso identidad ajena ni se extrajeron secretos. Logs privados
+private/aa-version-probe-2026-11-05.txt y aa-version-probe-2026-11-05-second.txt;
+build artifacts/reports/android-aa-version-final.log y android-aa-version-lab-final.log.
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2,
+ADB 37.0.0. APK normal 24 975 309 bytes SHA-256
+`c0eac2a9d128a6689624b34c69cb58b3c41f25e9fb0997a6a7f929e24c698e1b`, no instalada
+por firma distinta. APK lab 24 975 317 bytes SHA-256
+`64c8411d1a1542ffc79b09ed98c8c571b342dd93be1f7a0351bff38dc57334bd`, instalada.
+Autenticacion legitima, receptor de medios, puente y pantalla apagada pendientes.
