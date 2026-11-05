@@ -54,13 +54,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     val savings = PhoneSavings(application, ::event)
     val projection = ProjectionSession(application, savings, ::event)
     private var displayProbe: OwnDisplayProbe? = null
+    private var virtualDisplayProbe: VirtualDisplayVideoProbe? = null
     private val probeEnd = Runnable { stopDisplayProbe() }
     private val probeHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val mutableProbeRunning = MutableStateFlow(false)
     val probeRunning = mutableProbeRunning.asStateFlow()
     /** Local test without the car: lets the owner lock the phone and read in the export whether frames continue. */
     fun startDisplayProbe() {
-        if (displayProbe != null) return
+        if (displayProbe != null || virtualDisplayProbe != null) return
         if (projection.active || ProjectionService.captureReady) {
             event("Detén la proyección y la captura antes de iniciar la sonda local")
             return
@@ -81,7 +82,26 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         probeHandler.removeCallbacks(probeEnd)
         displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}; cuadros al encoder=${it.framesSubmitted}; H264=${it.framesEncoded}; reloj H264 no creciente=${it.timestampRegressions}"); it.close() }
         displayProbe = null
+        virtualDisplayProbe?.let { event("Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; no es DeX"); it.close() }
+        virtualDisplayProbe = null
         mutableProbeRunning.value = false
+    }
+    fun startVirtualDisplayProbe() {
+        if (displayProbe != null || virtualDisplayProbe != null) return
+        if (projection.active || ProjectionService.captureReady) {
+            event("Detén la proyección y la captura antes de iniciar la sonda local")
+            return
+        }
+        try {
+            virtualDisplayProbe = VirtualDisplayVideoProbe(getApplication(), ::event)
+            virtualDisplayProbe?.start()
+            mutableProbeRunning.value = true
+            event("Sonda de pantalla virtual propia iniciada; hasta 11 minutos; no es DeX ni transmite al coche")
+            probeHandler.postDelayed(probeEnd, 11 * 60_000L)
+        } catch (error: Exception) {
+            virtualDisplayProbe?.close(); virtualDisplayProbe = null
+            event("Sonda virtual falló: ${error.javaClass.simpleName}")
+        }
     }
     fun captureGranted(resultCode: Int, data: android.content.Intent?) {
         if (resultCode != android.app.Activity.RESULT_OK || data == null) { event("Captura de pantalla no autorizada"); return }
@@ -263,7 +283,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.30.0-research")
+        appendLine("AionLink Open 0.31.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -491,7 +511,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.30.0")
+            Text("Cliente USB + Bluetooth experimental • v0.31.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -526,6 +546,9 @@ class MainActivity : ComponentActivity() {
             }, modifier = Modifier.fillMaxWidth()) { Text(if (minBrightness) "Brillo mínimo al proyectar: activado" else "Brillo mínimo al proyectar: desactivado") }
             OutlinedButton(onClick = { if (probeRunning) model.stopDisplayProbe() else model.startDisplayProbe() },
                 modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Detener prueba de pantalla apagada" else "Probar pantalla propia apagada (hasta 11 min)") }
+            OutlinedButton(onClick = { model.startVirtualDisplayProbe() }, enabled = !probeRunning,
+                modifier = Modifier.fillMaxWidth()) { Text("Probar vídeo de pantalla virtual propia") }
+            Text("La pantalla virtual de prueba solo muestra un patrón de AionLink; no inicia Samsung DeX ni envía vídeo al coche.")
             if (probeRunning) Text("Apaga la pantalla durante la prueba. Después vuelve a abrir la app y guarda el diagnóstico. No se envía imagen al coche.")
             Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")
             Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
