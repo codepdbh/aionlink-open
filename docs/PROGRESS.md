@@ -1383,3 +1383,22 @@ pantalla fallo por la redireccion de PowerShell y no se repitio para no interfer
 Incompleto: lanzador, botones superpuestos y horizontal sin probar en el coche. Sonda de dibujo directo
 sin ejecutar. Commit a main de 0.26, 0.27 y 0.28 pedido por el propietario, sin esperar a esa
 prueba; TXT, fotografias, APK y extracted/ siguen privados.
+
+## 2026-11-05 - diagnostico 0.28 y plan de pantalla apagada / Android Auto
+
+Diagnostico `aionlink-diagnostics5.txt` recuperado del S25, 11 503 bytes, SHA-256
+`31203205e5d15148aa9ea1ae30395481977e3113a6f4cfd40ce0001e7a62e14b`, preservado en
+private/vehicle-tests-2026-11-05/. Snapshot 2026-11-04 03:10:23 UTC (3 de noviembre,
+23:10 en La Paz). versionCode instalado 28. Registra prueba/firma AUTH verificadas y
+CONFIRM_SENT, CONTROL conectado, RTSP PLAYING, 1740 unidades de video a 30 fps, 2709
+tramas AAC, 35 eventos tactiles aplicados de 35, y lanzador abierto; al exportar el
+enlace seguia activo. Son registros del telefono, no prueba independiente de la
+imagen, audibilidad o estabilidad posterior. El cierre del socket AUTH despues de
+CONFIRM no prueba por si solo fallo de los canales siguientes.
+
+Se elaboro `architecture/PLAN_ANDROID_AUTO_Y_PANTALLA_APAGADA.md`: conserva espejo,
+prioriza requisito de pantalla fisica apagada y evalua Android Auto real mediante
+criterio GO/NO-GO; interfaz propia alternativa no se presenta como Android Auto.
+Fuentes oficiales enlazadas en el plan. No se ejecutaron simulaciones ni se cambio
+codigo, APK o configuracion del telefono; no se corrieron tests de codigo. ADB
+37.0.0, analisis de archivos locales y documentacion publica. Sin errores conocidos.
