@@ -2,8 +2,11 @@ plugins { id("com.android.application"); kotlin("android"); id("org.jetbrains.ko
 android {
     namespace = "org.aionlink.open"; compileSdk = 35
     defaultConfig {
-        applicationId = "org.aionlink.open"; minSdk = 29; targetSdk = 35
-        versionCode = 28; versionName = "0.28.0-research"
+        // Optional isolated lab package lets encoder tests run without replacing the owner's installed app.
+        applicationId = if (project.hasProperty("aionlinkLab")) "org.aionlink.open.lab" else "org.aionlink.open"
+        manifestPlaceholders["applicationLabel"] = if (project.hasProperty("aionlinkLab")) "AionLink Sonda" else "AionLink Open"
+        minSdk = 29; targetSdk = 35
+        versionCode = 29; versionName = "0.29.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

@@ -1402,3 +1402,36 @@ criterio GO/NO-GO; interfaz propia alternativa no se presenta como Android Auto.
 Fuentes oficiales enlazadas en el plan. No se ejecutaron simulaciones ni se cambio
 codigo, APK o configuracion del telefono; no se corrieron tests de codigo. ADB
 37.0.0, analisis de archivos locales y documentacion publica. Sin errores conocidos.
+
+## 0.29 - inicio de la sonda H264 con pantalla apagada - 2026-11-05
+
+Se inicio el plan de pantalla apagada sin modificar la ruta existente de proyeccion.
+`DirectEncoderProbe` dibuja un patron sintetico en un Surface de MediaCodec H.264,
+sin MediaProjection ni red. La sonda local informa por intervalo cuadros enviados al
+encoder, cuadros codificados, edad de la ultima salida, timestamps no crecientes,
+estado interactivo y bloqueo; los contadores de entrada y salida permiten distinguir
+el posible repetido automatico de un cuadro. Maximo 11 minutos, bloqueo parcial de
+CPU acotado a 12 minutos y boton de parada. `isInteractive` es una aproximacion al
+estado de uso, no prueba independiente del estado fisico de cada pantalla. Si Android
+termina el proceso en segundo plano, se puede perder el diagnostico: no hay servicio
+foreground de la sonda. No se realizo aun una prueba larga con pantalla apagada.
+
+Por incompatibilidad de firma, `adb install -r` de la APK normal sobre el paquete
+existente devolvio INSTALL_FAILED_UPDATE_INCOMPATIBLE. No se desinstalo ni cambio la
+app original. Una variante opcional `-PaionlinkLab`, paquete org.aionlink.open.lab,
+etiqueta AionLink Sonda, se instalo por separado y queda para prueba local; no es
+Android Auto ni un modo de proyeccion. El paquete de pruebas lab se retiro; paquete
+original permanece versionCode 28, servicio tactil Bound y Crashed services vacio.
+
+Validacion: 6 Python, 104 JVM (9 core, 59 protocolo, 16 proyeccion, 4 Bluetooth,
+16 Wi-Fi), compilacion y lint app 0 errores/26 advertencias. Una prueba instrumentada
+de encoder real sintetico en el paquete lab paso en 4,07 s con pantalla encendida,
+incluidos cuadros generados/codificados y orden de timestamps. No verifica pantalla
+apagada, proyeccion, sonido ni vehiculo. Log private/ui-test-0.29-final.txt; builds
+artifacts/reports/android-build-0.29-final3.log y android-lab-build-0.29-final3.log.
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2,
+ADB 37.0.0. Se repitio build tras cambios de fuente/etiqueta. APK normal 24 958 925
+bytes SHA-256 `bbb5e95786c1a6e05a78ea139678531a2f924fda6116912ab671d81dd40ed9f8`,
+no instalada; APK laboratorio 24 958 933 bytes SHA-256
+`f02cd8e1e3fd5ce563499889bd53a9da2bf5fa88108061948e43bfce62f6b3b0`, instalada.
+El puente Android Auto y el modo de interfaz propia en el coche siguen pendientes.

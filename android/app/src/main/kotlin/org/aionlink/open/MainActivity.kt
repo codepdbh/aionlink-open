@@ -61,20 +61,25 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     /** Local test without the car: lets the owner lock the phone and read in the export whether frames continue. */
     fun startDisplayProbe() {
         if (displayProbe != null) return
+        if (projection.active || ProjectionService.captureReady) {
+            event("Detén la proyección y la captura antes de iniciar la sonda local")
+            return
+        }
         // Long enough for several reports with the phone locked: a brief lock says little.
         try {
-            displayProbe = OwnDisplayProbe(getApplication(), onReport = ::event).also { it.start() }
+            displayProbe = OwnDisplayProbe(getApplication(), onReport = ::event)
+            displayProbe?.start()
             mutableProbeRunning.value = true
-            event("Sonda de pantalla propia iniciada; bloquea el teléfono y déjalo así unos 30 s")
-            probeHandler.postDelayed(probeEnd, 40_000)
+            event("Sonda local iniciada durante un máximo de 11 minutos; apaga la pantalla y después exporta el diagnóstico")
+            probeHandler.postDelayed(probeEnd, 11 * 60_000L)
         } catch (error: RuntimeException) {
             displayProbe?.close(); displayProbe = null
             event("Sonda de pantalla propia falló: ${error.javaClass.simpleName}")
         }
     }
-    private fun stopDisplayProbe() {
+    fun stopDisplayProbe() {
         probeHandler.removeCallbacks(probeEnd)
-        displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}"); it.close() }
+        displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}; cuadros al encoder=${it.framesSubmitted}; H264=${it.framesEncoded}; reloj H264 no creciente=${it.timestampRegressions}"); it.close() }
         displayProbe = null
         mutableProbeRunning.value = false
     }
@@ -258,7 +263,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.28.0-research")
+        appendLine("AionLink Open 0.29.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -478,7 +483,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.28.0")
+            Text("Cliente USB + Bluetooth experimental • v0.29.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -507,8 +512,9 @@ class MainActivity : ComponentActivity() {
                 else context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
                     android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }, modifier = Modifier.fillMaxWidth()) { Text(if (minBrightness) "Brillo mínimo al proyectar: activado" else "Brillo mínimo al proyectar: desactivado") }
-            OutlinedButton(onClick = { model.startDisplayProbe() }, enabled = !probeRunning,
-                modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Sonda en curso: bloquea el teléfono" else "Probar pantalla propia con el teléfono bloqueado (40 s)") }
+            OutlinedButton(onClick = { if (probeRunning) model.stopDisplayProbe() else model.startDisplayProbe() },
+                modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Detener prueba de pantalla apagada" else "Probar pantalla propia apagada (hasta 11 min)") }
+            if (probeRunning) Text("Apaga la pantalla durante la prueba. Después vuelve a abrir la app y guarda el diagnóstico. No se envía imagen al coche.")
             Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")
             Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
             Text(auxiliary)
