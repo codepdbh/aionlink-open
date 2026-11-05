@@ -30,7 +30,7 @@ class OwnDisplayProbe(
     private companion object {
         const val REPORT_MS = 5000L
         const val DRAW_INTERVAL_MS = 33L
-        const val WAKE_LOCK_MS = 60_000L
+        const val WAKE_LOCK_MS = 12 * 60_000L
     }
     private val main = Handler(Looper.getMainLooper())
     private val frames = AtomicLong()
@@ -44,9 +44,15 @@ class OwnDisplayProbe(
     private var drawThread: Thread? = null
     private var drawCallbacks: HandlerThread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var encoderProbe: DirectEncoderProbe? = null
+    private var reportedEncoded = 0L
+    private var reportedProduced = 0L
     @Volatile private var drawing = false
     val framesRendered get() = frames.get()
     val framesDrawn get() = drawnFrames.get()
+    val framesEncoded get() = encoderProbe?.encoded?.get() ?: 0L
+    val framesSubmitted get() = encoderProbe?.produced?.get() ?: 0L
+    val timestampRegressions get() = encoderProbe?.timestampRegressions?.get() ?: 0L
 
     private val report = object : Runnable {
         override fun run() {
@@ -54,9 +60,15 @@ class OwnDisplayProbe(
             val interactive = context.getSystemService(PowerManager::class.java).isInteractive
             val locked = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
             val drawn = drawnFrames.get()
-            onReport("Sonda de pantalla propia: en ${REPORT_MS / 1000}s vista=${now - reportedFrames}; dibujo directo=${drawn - reportedDrawn}; pantalla encendida=$interactive; bloqueado=$locked")
+            val encoded = framesEncoded
+            val produced = framesSubmitted
+            val elapsed = encoderProbe?.lastEncodedElapsed?.get() ?: 0L
+            val sinceLast = if (elapsed == 0L) -1 else android.os.SystemClock.elapsedRealtime() - elapsed
+            onReport("Sonda de pantalla propia: en ${REPORT_MS / 1000}s vista=${now - reportedFrames}; dibujo directo=${drawn - reportedDrawn}; cuadros al encoder=${produced - reportedProduced}; H264=${encoded - reportedEncoded}; último H264 hace ms=$sinceLast; reloj H264 no creciente=$timestampRegressions; interactivo=$interactive; bloqueado=$locked")
             reportedFrames = now
             reportedDrawn = drawn
+            reportedEncoded = encoded
+            reportedProduced = produced
             main.postDelayed(this, REPORT_MS)
         }
     }
@@ -73,7 +85,11 @@ class OwnDisplayProbe(
         presentation = object : Presentation(context, virtual.display) {
             override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContentView(Animated(getContext())) }
         }.also { it.show() }
-        if (target == null) startDrawing()
+        if (target == null) {
+            startDrawing()
+            encoderProbe = DirectEncoderProbe(width, height) { error -> main.post { onReport("Sonda H264: $error") } }
+            encoderProbe?.start()
+        }
         main.postDelayed(report, REPORT_MS)
     }
 
@@ -103,6 +119,7 @@ class OwnDisplayProbe(
 
     override fun close() {
         main.removeCallbacks(report)
+        encoderProbe?.close(); encoderProbe = null
         presentation?.dismiss(); presentation = null
         display?.release(); display = null
         reader?.close(); reader = null
