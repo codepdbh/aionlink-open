@@ -35,7 +35,10 @@ permite crear apps para un host existente, no proporciona un receptor general.
 **Bloqueante GO/NO-GO AA:** encontrar y documentar una interfaz de integración de
 receptor disponible y autorizada, ejecutable sin root ni hardware externo en el
 mismo S25, que entregue vídeo, audio y eventos bidireccionales a una app propia.
-No se ha encontrado ni comprobado esa interfaz. Investigar documentación pública
+Open Headunit afirma soportar el mismo teléfono mediante el servidor de desarrollo,
+pero no hemos comprobado su integración autorizada ni la pantalla apagada. Detalles en
+[investigación de self mode](../protocol-research/ANDROID_AUTO_SELF_MODE_2026-11-05.md).
+Investigar documentación pública
 y licencias, sin ejecutar APK de terceros, obtener claves privadas, copiar
 bibliotecas propietarias, suplantar identidades ni eludir autenticación. Si no se
 demuestra el acceso legítimo y al mismo dispositivo, NO-GO para prometer Android

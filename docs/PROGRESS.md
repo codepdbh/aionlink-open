@@ -1435,3 +1435,16 @@ bytes SHA-256 `bbb5e95786c1a6e05a78ea139678531a2f924fda6116912ab671d81dd40ed9f8`
 no instalada; APK laboratorio 24 958 933 bytes SHA-256
 `f02cd8e1e3fd5ce563499889bd53a9da2bf5fa88108061948e43bfce62f6b3b0`, instalada.
 El puente Android Auto y el modo de interfaz propia en el coche siguen pendientes.
+
+## 2026-11-05 - investigacion Android Auto self mode
+
+Consulta documental de Google DHU y proyecto independiente Open Headunit, sin ejecutar
+terceros ni abrir o copiar secretos. Open Headunit afirma soportar un receptor en el
+mismo telefono mediante servidor Android Auto de desarrollo, sujeto a version; esto
+corrige la impresion previa de que solo existian receptores de ejemplo en PC. AARE
+documenta restricciones de autenticacion TLS: son observaciones de terceros, no
+especificacion oficial ni verificacion en el S25. Falta una via autorizada para
+identidad del receptor y video/audio/entrada, y comprobar pantalla apagada. Detalle y
+fuentes en protocol-research/ANDROID_AUTO_SELF_MODE_2026-11-05.md; no se implemento
+Android Auto ni se ejecuto una simulacion. ADB 37.0.0 no detecto dispositivo al consultar;
+version Android Auto del S25 desconocida. Sin cambios de codigo o APK, tests no ejecutados.
