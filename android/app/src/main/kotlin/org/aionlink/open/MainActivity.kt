@@ -55,6 +55,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     val projection = ProjectionSession(application, savings, ::event)
     private var displayProbe: OwnDisplayProbe? = null
     private var virtualDisplayProbe: VirtualDisplayVideoProbe? = null
+    private val virtualProbeJournal = VirtualProbeJournal(application)
     private val probeEnd = Runnable { stopDisplayProbe() }
     private val probeHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val mutableProbeRunning = MutableStateFlow(false)
@@ -82,7 +83,10 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         probeHandler.removeCallbacks(probeEnd)
         displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}; cuadros al encoder=${it.framesSubmitted}; H264=${it.framesEncoded}; reloj H264 no creciente=${it.timestampRegressions}"); it.close() }
         displayProbe = null
-        virtualDisplayProbe?.let { event("Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; no es DeX"); it.close() }
+        virtualDisplayProbe?.let {
+            val summary = "Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; no es DeX"
+            event(summary); virtualProbeJournal.finish(summary); it.close()
+        }
         virtualDisplayProbe = null
         mutableProbeRunning.value = false
     }
@@ -93,8 +97,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         try {
-            virtualDisplayProbe = VirtualDisplayVideoProbe(getApplication(), ::event)
+            virtualDisplayProbe = VirtualDisplayVideoProbe(getApplication()) { message ->
+                virtualProbeJournal.sample(message); event(message)
+            }
             virtualDisplayProbe?.start()
+            virtualProbeJournal.start()
             mutableProbeRunning.value = true
             event("Sonda de pantalla virtual propia iniciada; hasta 11 minutos; no es DeX ni transmite al coche")
             probeHandler.postDelayed(probeEnd, 11 * 60_000L)
@@ -283,7 +290,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.31.0-research")
+        appendLine("AionLink Open 0.32.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -343,6 +350,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("USB recibidos=${cable.bytesRead}; frames=${cable.frames}; solicitudes experimentales enviadas=${cable.requestsSent}; puertos conocidos=${cable.knownPorts.sorted()}")
         appendLine("USB detalle=${cable.message ?: "sin incidencias registradas"}")
         appendLine("No se incluye serial USB ni payload. USB abierto no implica sesión ICCOA.")
+        appendLine(virtualProbeJournal.snapshot())
         append(events.value.joinToString("\n"))
     }
     init {
@@ -511,7 +519,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.31.0")
+            Text("Cliente USB + Bluetooth experimental • v0.32.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -521,10 +529,10 @@ class MainActivity : ComponentActivity() {
             }
             Text("Proyección", style = MaterialTheme.typography.titleLarge)
             Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
-            Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) },
+            Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) }, enabled = !probeRunning,
                 modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
             if (Build.VERSION.SDK_INT >= 34) {
-                OutlinedButton(onClick = { showCaptureGuide = true }, modifier = Modifier.fillMaxWidth()) { Text("Compartir una aplicación (experimental)") }
+                OutlinedButton(onClick = { showCaptureGuide = true }, enabled = !probeRunning, modifier = Modifier.fillMaxWidth()) { Text("Compartir una aplicación (experimental)") }
             }
             Text("Captura: ${captureObservation.stage} • visibilidad: ${captureObservation.visible?.toString() ?: "desconocida"}")
             OutlinedButton(onClick = {

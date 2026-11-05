@@ -16,6 +16,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.view.Surface
 import android.view.View
+import android.view.Display
 import java.util.concurrent.atomic.AtomicLong
 
 /** Local, private display containing only our test pattern; no DeX, capture or network. */
@@ -26,6 +27,7 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
     private val lastOutput = AtomicLong()
     private var lastDrawn = 0L
     private var lastEncoded = 0L
+    private var lastReportElapsed = 0L
     private var display: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private var surface: Surface? = null
@@ -41,11 +43,20 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
             if (!running) return
             val nowDrawn = drawn.get(); val nowEncoded = encoded.get()
             val elapsed = lastOutput.get()
-            val age = if (elapsed == 0L) -1 else SystemClock.elapsedRealtime() - elapsed
+            val now = SystemClock.elapsedRealtime()
+            val age = if (elapsed == 0L) -1 else now - elapsed
+            val interval = now - lastReportElapsed
             val interactive = context.getSystemService(PowerManager::class.java).isInteractive
             val locked = context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
-            report("Pantalla virtual propia: intervalo=5s; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; último H264 hace ms=$age; interactivo=$interactive; bloqueado=$locked; no es DeX")
+            val physicalState = when (context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)?.state) {
+                Display.STATE_ON -> "ON"
+                Display.STATE_OFF -> "OFF"
+                Display.STATE_DOZE, Display.STATE_DOZE_SUSPEND -> "DOZE"
+                else -> "OTHER_OR_UNKNOWN"
+            }
+            report("Pantalla virtual propia: intervalo ms=$interval; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; último H264 hace ms=$age; estado al final: pantalla principal=$physicalState; interactivo=$interactive; bloqueado=$locked; no es DeX")
             lastDrawn = nowDrawn; lastEncoded = nowEncoded
+            lastReportElapsed = now
             handler.postDelayed(this, 5000)
         }
     }
@@ -62,6 +73,7 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
             wakeLock = context.getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AionLink:virtual-probe").also { it.acquire(12 * 60_000L) }
             running = true
+            lastReportElapsed = SystemClock.elapsedRealtime()
             worker = Thread({
                 val info = MediaCodec.BufferInfo()
                 try {
