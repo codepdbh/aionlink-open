@@ -17,6 +17,8 @@ import android.os.SystemClock
 import android.view.Surface
 import android.view.View
 import android.view.Display
+import org.aionlink.projection.ExperimentalEncodedBridge
+import org.aionlink.projection.TsRtpStreamer
 import java.util.concurrent.atomic.AtomicLong
 
 /** Local, private display containing only our test pattern; no DeX, capture or network. */
@@ -25,9 +27,16 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
     private val drawn = AtomicLong()
     private val encoded = AtomicLong()
     private val lastOutput = AtomicLong()
+    private val muxed = AtomicLong()
+    private val packets = AtomicLong()
+    private val rejected = AtomicLong()
+    private val malformedPackets = AtomicLong()
     private var lastDrawn = 0L
     private var lastEncoded = 0L
     private var lastReportElapsed = 0L
+    private var lastMuxed = 0L
+    private var lastPackets = 0L
+    private var bridge: ExperimentalEncodedBridge? = null
     private var display: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private var surface: Surface? = null
@@ -37,11 +46,15 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
     @Volatile private var running = false
     val drawnFrames get() = drawn.get()
     val encodedFrames get() = encoded.get()
+    val muxedFrames get() = muxed.get()
+    val rtpPackets get() = packets.get()
+    val invalidPackets get() = malformedPackets.get()
 
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
             val nowDrawn = drawn.get(); val nowEncoded = encoded.get()
+            val nowMuxed = muxed.get(); val nowPackets = packets.get()
             val elapsed = lastOutput.get()
             val now = SystemClock.elapsedRealtime()
             val age = if (elapsed == 0L) -1 else now - elapsed
@@ -54,8 +67,9 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
                 Display.STATE_DOZE, Display.STATE_DOZE_SUSPEND -> "DOZE"
                 else -> "OTHER_OR_UNKNOWN"
             }
-            report("Pantalla virtual propia: intervalo ms=$interval; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; último H264 hace ms=$age; estado al final: pantalla principal=$physicalState; interactivo=$interactive; bloqueado=$locked; no es DeX")
+            report("Pantalla virtual propia: intervalo ms=$interval; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; TS/RTP cuadros=${nowMuxed - lastMuxed}; paquetes=${nowPackets - lastPackets}; descartados=${rejected.get()}; paquetes inválidos=${malformedPackets.get()}; último H264 hace ms=$age; estado al final: pantalla principal=$physicalState; interactivo=$interactive; bloqueado=$locked; no es DeX")
             lastDrawn = nowDrawn; lastEncoded = nowEncoded
+            lastMuxed = nowMuxed; lastPackets = nowPackets
             lastReportElapsed = now
             handler.postDelayed(this, 5000)
         }
@@ -74,16 +88,43 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AionLink:virtual-probe").also { it.acquire(12 * 60_000L) }
             running = true
             lastReportElapsed = SystemClock.elapsedRealtime()
+            val localBridge = ExperimentalEncodedBridge { audio ->
+                TsRtpStreamer({ datagram ->
+                    // Local in-memory sink: no IP, socket, vehicle or screen content is recorded.
+                    val valid = datagram.size > 12 && (datagram.size - 12) % 188 == 0 &&
+                        datagram[0].toInt() and 0xc0 == 0x80 && datagram[1].toInt() and 0x7f == 33 &&
+                        (12 until datagram.size step 188).all { datagram[it].toInt() and 0xff == 0x47 }
+                    if (!valid) malformedPackets.incrementAndGet()
+                    packets.incrementAndGet()
+                }, audio = audio)
+            }
+            bridge = localBridge
+            val session = localBridge.start(audio = false)
             worker = Thread({
                 val info = MediaCodec.BufferInfo()
+                var codecConfig: ByteArray? = null
                 try {
                     while (running) {
                         val index = encoder.dequeueOutputBuffer(info, 100_000)
                         if (index >= 0) {
-                            if (info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
-                                encoded.incrementAndGet(); lastOutput.set(SystemClock.elapsedRealtime())
+                            try {
+                                val buffer = encoder.getOutputBuffer(index)
+                                if (buffer != null && info.size > 0) {
+                                    val bytes = ByteArray(info.size)
+                                    buffer.position(info.offset); buffer.limit(info.offset + info.size); buffer.get(bytes)
+                                    if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) codecConfig = bytes
+                                    else {
+                                        encoded.incrementAndGet(); lastOutput.set(SystemClock.elapsedRealtime())
+                                        val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+                                        val config = codecConfig
+                                        val payload = if (key && config != null && !startsWithSps(bytes)) config + bytes else bytes
+                                        val result = localBridge.video(session, payload, info.presentationTimeUs, key)
+                                        if (result == ExperimentalEncodedBridge.Result.ACCEPTED) muxed.incrementAndGet() else rejected.incrementAndGet()
+                                    }
+                                }
+                            } finally {
+                                encoder.releaseOutputBuffer(index, false)
                             }
-                            encoder.releaseOutputBuffer(index, false)
                         }
                     }
                 } catch (error: Exception) {
@@ -114,6 +155,15 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
         }
     }
 
+    private fun startsWithSps(bytes: ByteArray): Boolean {
+        val offset = when {
+            bytes.size > 4 && bytes[0] == 0.toByte() && bytes[1] == 0.toByte() && bytes[2] == 1.toByte() -> 3
+            bytes.size > 5 && bytes[0] == 0.toByte() && bytes[1] == 0.toByte() && bytes[2] == 0.toByte() && bytes[3] == 1.toByte() -> 4
+            else -> return false
+        }
+        return bytes[offset].toInt() and 0x1f == 7
+    }
+
     /** Main thread only. */
     override fun close() {
         running = false
@@ -121,6 +171,7 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
         presentation?.dismiss(); presentation = null
         display?.release(); display = null
         worker?.join(1000); worker = null
+        bridge?.close(); bridge = null
         surface?.release(); surface = null
         codec?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }; codec = null
         wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null
