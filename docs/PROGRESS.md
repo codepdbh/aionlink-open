@@ -1512,3 +1512,33 @@ ADB 37.0.0. APK normal 24 975 309 bytes SHA-256
 por firma distinta. APK lab 24 975 317 bytes SHA-256
 `64c8411d1a1542ffc79b09ed98c8c571b342dd93be1f7a0351bff38dc57334bd`, instalada.
 Autenticacion legitima, receptor de medios, puente y pantalla apagada pendientes.
+
+## 0.30 - opcion de compartir una ventana y diagnostico - 2026-11-05
+
+Documentacion oficial MediaProjection: Android 14+ ofrece compartir una app o
+pantalla completa por defecto; bloquear puede detener la sesion. La captura de
+audio depende del uso y politica del emisor. Fuentes y limites en
+protocol-research/APP_CAPTURE_030.md. El usuario propone enviar Open Headunit al
+AION: es una hipotesis de captura, no se ha ejecutado, comprobado ni integrado.
+
+UI anade opcion experimental que informa al propietario y abre el selector Android
+existente; el espejo anterior sigue disponible. Se registra etapa, tamano y
+visibilidad informados por MediaProjection, sin identidad ni contenido. Se protege
+la referencia activa frente al callback de fin de una captura anterior. No se
+adapta automaticamente el formato ni el tactil de una ventana; no se ha demostrado
+pantalla apagada ni receptor Android Auto. No se ejecutaron APK de terceros ni se
+modifico coche. No aparecio diagnostico nuevo de la sonda anterior.
+
+Validacion: 6 Python, 108 JVM (9 core, 59 protocolo, 20 proyeccion, 4 Bluetooth,
+16 Wi-Fi), lint app 0 errores/26 advertencias; test Android de dialogo OK (1 test)
+en S25, sin conceder captura ni probar coche. JBR 21, Gradle 8.13, AGP 8.9.1,
+Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2, ADB 37.0.0. Logs en
+artifacts/reports/android-build-0.30.log, android-lab-build-0.30.log y
+private/ui-test-0.30-guide.txt. El primer parche no se aplico por incluir el mismo
+archivo dos veces; se dividio sin cambios parciales.
+
+APK normal versionCode 30, 24 991 693 bytes SHA-256
+`aabe8dc2cb4e0bd032402675c708e8ea2c974b517d3219e404c4a19af924afaf`, no instalada
+por incompatibilidad de firma. APK lab 24 991 697 bytes SHA-256
+`91f9810524d2f0d54a50e4598e7def36f8db8daf2e80f68f0d59fa0fb3322f67`, instalada;
+paquete de tests retirado, app original 0.28 y servicio tactil Bound conservados.

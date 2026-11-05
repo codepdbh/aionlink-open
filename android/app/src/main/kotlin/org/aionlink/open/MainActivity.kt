@@ -263,7 +263,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.29.0-research")
+        appendLine("AionLink Open 0.30.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -310,6 +310,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine(projection.auxiliary.value)
         val video = projection.stream.value
         appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}; cuadros/s=${video.fps}; escrituras lentas=${video.slowWrites}")
+        val captured = ProjectionService.observation.value
+        appendLine("Captura Android: etapa=${captured.stage}; tamaño=${captured.width ?: "desconocido"}x${captured.height ?: "desconocido"}; visible=${captured.visible ?: "desconocido"}; no identifica aplicación")
         appendLine("Lanzador: activado=${savings.launcher.value}; horizontal=${savings.landscape.value}; apps elegidas=${CarLauncherActivity.chosenCount(getApplication())}")
         appendLine("Ahorro: brillo mínimo=${savings.enabled.value}; permiso ajustes=${savings.canWrite}; batería: ${savings.summary()}")
         appendLine("Audio: ${video.audio}; tramas AAC=${video.audioFrames}")
@@ -396,6 +398,7 @@ class MainActivity : ComponentActivity() {
     val probeRunning by model.probeRunning.collectAsStateWithLifecycle()
     val carLauncher by model.savings.launcher.collectAsStateWithLifecycle()
     val forceLandscape by model.savings.landscape.collectAsStateWithLifecycle()
+    val captureObservation by ProjectionService.observation.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         model.captureGranted(result.resultCode, result.data)
     }
@@ -418,6 +421,7 @@ class MainActivity : ComponentActivity() {
     var pendingRead by remember { mutableStateOf<String?>(null) }
     var pendingAuthProbe by remember { mutableStateOf(false) }
     var pendingAuthExchange by remember { mutableStateOf(false) }
+    var showCaptureGuide by remember { mutableStateOf(false) }
     var authorizedConnect by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val networkPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val request = authorizedConnect; authorizedConnect = null
@@ -456,6 +460,10 @@ class MainActivity : ComponentActivity() {
     )
     if (pendingAuthExchange) AuthExchangeDialog(onSubmit = { pin -> pendingAuthExchange = false; model.sendExperimentalAuth(pin) },
         onDismiss = { pendingAuthExchange = false })
+    if (showCaptureGuide) CaptureAppGuide(onContinue = {
+        showCaptureGuide = false
+        audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+    }, onDismiss = { showCaptureGuide = false })
     pendingConnect?.let {
         ConnectionCodeDialog(codeReadiness, connectionNotice, onSubmit = model::submitPin,
             onClose = { model.cancelPrepared() })
@@ -483,7 +491,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.29.0")
+            Text("Cliente USB + Bluetooth experimental • v0.30.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -495,6 +503,10 @@ class MainActivity : ComponentActivity() {
             Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
             Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) },
                 modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
+            if (Build.VERSION.SDK_INT >= 34) {
+                OutlinedButton(onClick = { showCaptureGuide = true }, modifier = Modifier.fillMaxWidth()) { Text("Compartir una aplicación (experimental)") }
+            }
+            Text("Captura: ${captureObservation.stage} • visibilidad: ${captureObservation.visible?.toString() ?: "desconocida"}")
             OutlinedButton(onClick = {
                 context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }, modifier = Modifier.fillMaxWidth()) { Text(if (TouchInjectionService.instance == null) "Táctil del coche INACTIVO: pulsa y actívalo en accesibilidad" else "Táctil del coche activo (accesibilidad)") }

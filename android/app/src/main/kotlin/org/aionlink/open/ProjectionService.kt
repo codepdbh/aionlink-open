@@ -18,6 +18,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.IBinder
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** Android callbacks report dimensions and visibility, not the identity of the chosen app. */
+data class CaptureObservation(val stage: String = "IDLE", val width: Int? = null, val height: Int? = null, val visible: Boolean? = null)
 
 /**
  * Foreground service required by Android for screen capture. Holds the MediaProjection granted by the
@@ -30,6 +35,8 @@ class ProjectionService : Service() {
         private const val EXTRA_DATA = "data"
         @Volatile var projection: MediaProjection? = null; private set
         @Volatile var lastError: String? = null; private set
+        private val mutableObservation = MutableStateFlow(CaptureObservation())
+        val observation = mutableObservation.asStateFlow()
         @Volatile private var consumed = false
         /** Android rejects a second virtual display from one MediaProjection, so each grant serves one connection. */
         val captureReady get() = projection != null && !consumed
@@ -62,15 +69,35 @@ class ProjectionService : Service() {
             projection?.stop()
             val granted = getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
             granted?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() { projection = null }
+                override fun onStop() {
+                    if (projection === granted) {
+                        projection = null
+                        mutableObservation.value = mutableObservation.value.copy(stage = "STOPPED")
+                    }
+                }
+                override fun onCapturedContentResize(width: Int, height: Int) {
+                    if (projection === granted && width > 0 && height > 0)
+                        mutableObservation.value = mutableObservation.value.copy(width = width, height = height)
+                }
+                override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                    if (projection === granted)
+                        mutableObservation.value = mutableObservation.value.copy(visible = isVisible)
+                }
             }, Handler(Looper.getMainLooper()))
             consumed = false
-            projection = granted; lastError = if (granted == null) "PROYECCION_NULA" else null
+            projection = granted
+            mutableObservation.value = CaptureObservation(if (granted == null) "UNAVAILABLE" else "READY")
+            lastError = if (granted == null) "PROYECCION_NULA" else null
         } catch (_: SecurityException) { lastError = "SECURITY_EXCEPTION"; stopSelf() }
         return START_NOT_STICKY
     }
 
-    override fun onDestroy() { projection?.stop(); projection = null; super.onDestroy() }
+    override fun onDestroy() {
+        projection?.stop()
+        if (projection != null) mutableObservation.value = mutableObservation.value.copy(stage = "STOPPED")
+        projection = null
+        super.onDestroy()
+    }
 }
 
 /** Hardware H.264 encoder fed by a mirrored virtual display; delivers Annex-B access units. */
