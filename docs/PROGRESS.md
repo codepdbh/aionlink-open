@@ -1473,3 +1473,16 @@ ADB 37.0.0. APK normal de build 24 975 309 bytes SHA-256
 `cfcaf0be7c8535e8f22b3f269dd6e11a34a66d6cfd23113762866a71b41d2ffe`; no instalada:
 la firma sigue siendo diferente de la app original. No se cambiaron paquetes, no se
 ejecutaron APK de terceros ni pruebas hardware o simulaciones de Android Auto real.
+
+## 2026-11-05 - servidor Android Auto de desarrollo iniciado por el propietario
+
+El propietario activo manualmente el servidor para desarrolladores. Lectura ADB del
+S25: Android Auto 17.9.664044-release, servicio DeveloperHeadUnitNetworkService en
+foreground y puerto TCP 5277 en escucha con UID de Android Auto. Una conexion local
+unica mediante `toybox nc -z -w 2` devolvio exit 0, sin enviar mensajes de aplicacion;
+el puerto seguia escuchando despues. La primera consulta de ayuda `nc -h` fallo
+(opcion desconocida); `nc --help` aclaro las opciones. ADB 37.0.0, toybox 0.8.13.
+Esto confirma disponibilidad TCP local, no negociacion, autenticacion, video, audio,
+entrada ni pantalla apagada. No se detecto un diagnostico nuevo de la sonda. No se
+ejecutaron APK de terceros desde el ordenador, ni se cambiaron codigo o APK; no hubo
+conexion al coche ni extraccion de credenciales. Tests de codigo no aplican.
