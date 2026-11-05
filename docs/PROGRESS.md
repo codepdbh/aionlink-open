@@ -1542,3 +1542,33 @@ APK normal versionCode 30, 24 991 693 bytes SHA-256
 por incompatibilidad de firma. APK lab 24 991 697 bytes SHA-256
 `91f9810524d2f0d54a50e4598e7def36f8db8daf2e80f68f0d59fa0fb3322f67`, instalada;
 paquete de tests retirado, app original 0.28 y servicio tactil Bound conservados.
+
+## 0.31 - pantalla virtual propia, investigacion DeX - 2026-11-05
+
+Samsung documenta DeX inalambrico para el S25 con receptor Miracast; Android
+documenta restricciones de displays privados. No se ha identificado API publica
+que entregue a una app normal el escritorio DeX en display virtual privado; tampoco
+se sabe si el AION admite Miracast. `dumpsys display` no mostro pantallas Wi-Fi
+activas, sin coche cerca; no significa incompatibilidad. Fuentes y limites en
+protocol-research/DEX_VIRTUAL_PROBE_031.md. No se ejecuto DeX, APK de terceros,
+ni se cambio la configuracion de Samsung o el vehiculo.
+
+Implementada sonda separada: Presentation propia en display privado a un encoder
+H264, contadores de dibujos/salida e interactividad cada 5 s, duracion maxima
+11 min. No es DeX, no se transmite al coche, no solicita MediaProjection y no
+cambia el espejo. Sin servicio foreground: Android podria terminar el proceso y
+perder datos. Primera prueba instrumentada con pantalla encendida obtuvo mas de
+cinco dibujos y cuadros H264 en cuatro segundos: OK (1 test), 4,178 s. El usuario
+indico que aun no hizo la prueba larga de pantalla apagada; ese resultado sigue
+pendiente. El servicio tactil de la app original sigue Bound, Crashed services vacio.
+
+Validacion: Python 6, 108 JVM (9 core, 59 protocolo, 20 proyeccion, 4 Bluetooth,
+16 Wi-Fi); build y lint app 0 errores/26 advertencias. JBR 21, Gradle 8.13,
+AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2, ADB 37.0.0.
+Logs artifacts/reports/android-build-0.31.log y android-lab-build-0.31.log;
+instrumentacion privada private/ui-test-0.31-virtual.txt. APK normal 25 008 081
+bytes SHA-256 `cee952984a15d4d2629369c28e7b1702449d71af4e563489ed907e4bb893f122`,
+no instalada por firma distinta. APK lab 25 008 085 bytes SHA-256
+`f13e15e6bbc8b32ac44fcafe0eee37c1be302dfc757e61ff51f6a32b4084b004`, instalada;
+paquete de tests retirado y app original 0.28 preservada. El puente real DeX,
+audio/tactil y proyeccion con pantalla apagada siguen sin implementar o verificar.
