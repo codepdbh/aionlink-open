@@ -1448,3 +1448,28 @@ identidad del receptor y video/audio/entrada, y comprobar pantalla apagada. Deta
 fuentes en protocol-research/ANDROID_AUTO_SELF_MODE_2026-11-05.md; no se implemento
 Android Auto ni se ejecuto una simulacion. ADB 37.0.0 no detecto dispositivo al consultar;
 version Android Auto del S25 desconocida. Sin cambios de codigo o APK, tests no ejecutados.
+
+## 2026-11-05 - simulacion inicial de fuente para puente
+
+El S25 se reconecto: dumpsys publica Android Auto 17.9.664044-release y AionLink
+Sonda 0.29. No se encontro nuevo diagnostico de sonda, por tanto pantalla apagada
+sigue sin probar. No se inicio una conexion real a Android Auto ni al coche.
+
+Se agrego `ExperimentalEncodedBridge`, prototipo JVM aislado que recibe frames
+supuestamente H.264 Annex-B y AAC ADTS y los entrega al multiplexor TS/RTP propio,
+con sesiones aisladas, controles de tamano, secuencia y timestamps. No se ha conectado
+al flujo de proyeccion ni a la interfaz de la app: no altera el espejo que funciona.
+Tests sinteticos comprueban PID de audio/video y cabeceras, rechazo de frames fuera
+de orden y callbacks de sesiones anteriores. No validan codec, decodificacion,
+sincronizacion real ni pantalla apagada. Limitaciones y procedencia en
+protocol-research/ENCODED_BRIDGE_SIMULATION_2026-11-05.md.
+
+Validacion: Python 6, JVM 106 (9 core, 59 protocolo, 18 proyeccion, 4 Bluetooth,
+16 Wi-Fi), build y lint app correctos: 0 errores/26 advertencias. El test de
+proyeccion se repitio al reforzar la comprobacion de PID; resultados sin fallos.
+Logs artifacts/reports/android-bridge-sim-0.29.log y android-bridge-test-final.log.
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python 3.14.2,
+ADB 37.0.0. APK normal de build 24 975 309 bytes SHA-256
+`cfcaf0be7c8535e8f22b3f269dd6e11a34a66d6cfd23113762866a71b41d2ffe`; no instalada:
+la firma sigue siendo diferente de la app original. No se cambiaron paquetes, no se
+ejecutaron APK de terceros ni pruebas hardware o simulaciones de Android Auto real.
