@@ -84,7 +84,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}; cuadros al encoder=${it.framesSubmitted}; H264=${it.framesEncoded}; reloj H264 no creciente=${it.timestampRegressions}"); it.close() }
         displayProbe = null
         virtualDisplayProbe?.let {
-            val summary = "Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; no es DeX"
+            val summary = "Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; TS/RTP cuadros=${it.muxedFrames}; paquetes=${it.rtpPackets}; paquetes inválidos=${it.invalidPackets}; no es DeX"
             event(summary); virtualProbeJournal.finish(summary); it.close()
         }
         virtualDisplayProbe = null
@@ -290,7 +290,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.32.0-research")
+        appendLine("AionLink Open 0.33.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -519,7 +519,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.32.0")
+            Text("Cliente USB + Bluetooth experimental • v0.33.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)

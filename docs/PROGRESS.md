@@ -1604,3 +1604,35 @@ por firma distinta. APK lab 25 008 085 bytes SHA-256
 `5aedf0028a3ba5f5b434d5bd3d491017b18cf65b1ef4d24d1480076ca29d8a1a`, instalada.
 Tests lab retirados; app original 0.28 y su servicio tactil Bound conservados.
 El propietario probara mas tarde; no se inicio coche ni APK terceros.
+
+## 0.33 - display virtual propio al multiplexor TS/RTP local - 2026-11-05
+
+El propietario aclaro que la proyeccion previa del AION la logro AionLink, no una
+funcion propia screen mirroring del coche. Quiere DeX real, no un espejo ni un
+patron. Las fuentes Samsung/Android consultadas no demuestran una API de app normal
+que inicie DeX en un display privado; no se ha implementado la fuente DeX ni debe
+interpretarse la ausencia de API encontrada como imposibilidad absoluta. Detalle
+en protocol-research/VIRTUAL_TS_RTP_033.md.
+
+Como paso de desarrollo, la sonda de pantalla virtual propia empaqueta frames H264
+del encoder real con ExperimentalEncodedBridge y TsRtpStreamer hacia consumidor en
+memoria, sin red. Cuenta cuadros TS/RTP, datagramas, rechazos y estructura basica;
+propaga codec config en frames clave. El diagnostico persistente incluye los
+contadores. Esto no descodifica imagen, no mide red, no envia al coche ni prueba
+DeX, audio, tactil o pantalla apagada. No se modifico el espejo existente. El
+primer parche no se aplico por repetir un archivo en la misma operacion; se dividio.
+
+Validacion: 6 Python, 108 JVM (9 core, 59 protocolo, 20 proyeccion, 4 Bluetooth,
+16 Wi-Fi); build/lint app 0 errores/29 avisos; tests aislados en S25 de display
+virtual H264 -> TS/RTP y diario: OK (2 tests), 6,206 s. Verifican conteos y cabeceras,
+no decodificacion ni receptor. No se ejecuto pantalla apagada, vehiculo ni APK
+terceros. App original 0.28 y servicio tactil Bound, Crashed services vacio.
+Herramientas: JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35,
+Python 3.14.2 y ADB 37.0.0. Logs artifacts/reports/android-build-0.33.log,
+android-lab-build-0.33.log y private/ui-test-0.33-virtual.txt.
+
+APK normal 25 008 081 bytes SHA-256
+`f6df8d49258621771b0a2f3c616eb8825f5f1db57cc04f41e70ad132d0bcd13b`, no instalada
+por firma distinta. APK lab 25 008 085 bytes SHA-256
+`6a2b779b68e51df005d72dc93c7cb9333794d90ef4dfc36c82e5d084ccdb28c5`, instalada;
+paquete de tests retirado. El receptor DeX y el puente real siguen pendientes.
