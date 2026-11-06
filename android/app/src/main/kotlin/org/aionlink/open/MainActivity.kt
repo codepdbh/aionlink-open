@@ -89,6 +89,58 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         displayProbe = null
         mutableProbeRunning.value = false
     }
+    private var headunitDisplay: CarModeDisplay? = null
+    private var headunitPreviewBridge: HeadunitSurfaceBridge? = null
+    private val mutableHeadunitPreview = MutableStateFlow(false)
+    val headunitPreview = mutableHeadunitPreview.asStateFlow()
+
+    /**
+     * Without the car: Open Headunit on AionLink's 1920x960 virtual display, encoded into an in-memory TS/RTP sink.
+     * Reports frames every 5 s so the owner (or ADB) can see whether Android Auto renders there, also with the screen off.
+     */
+    fun startHeadunitPreview(activity: android.content.Context) {
+        if (headunitDisplay != null || projection.active) { event("Prueba local de Android Auto no iniciada: hay otra sesión activa"); return }
+        val units = java.util.concurrent.atomic.AtomicLong()
+        val streamer = org.aionlink.projection.TsRtpStreamer({ })
+        try {
+            val display = CarModeDisplay(getApplication(), 1920, 960, 30, org.aionlink.projection.WfdFormats.videoBitrate(1920, 960, 30),
+                onAccessUnit = { unit, pts, key -> units.incrementAndGet(); synchronized(streamer) { streamer.onAccessUnit(unit, pts, key) } },
+                onError = { error -> probeHandler.post { event("Prueba Android Auto: error $error"); stopHeadunitPreview() } },
+                externalContent = true)
+            display.start()
+            headunitDisplay = display
+            mutableHeadunitPreview.value = true
+            CarModeService.start(getApplication())
+            val input = display.externalInputSurface() ?: error("Falta superficie de codificador")
+            event("Prueba local Android Auto: puente de superficie sin pantalla virtual")
+            HeadunitSurfaceBridge(getApplication(), input) { result -> event("Prueba Android Auto: $result") }
+                .also { headunitPreviewBridge = it; it.start() }
+            var last = 0L
+            val tick = object : Runnable {
+                override fun run() {
+                    if (headunitDisplay !== display) return
+                    val now = units.get()
+                    val power = getApplication<Application>().getSystemService(android.os.PowerManager::class.java)
+                    event("Prueba Android Auto: H264 en 5 s=${now - last}; total=$now; cuadros del relé=${display.relayedFrames}; datagramas=${streamer.datagramsSent}; pantalla interactiva=${power.isInteractive}")
+                    last = now
+                    probeHandler.postDelayed(this, 5000)
+                }
+            }
+            probeHandler.postDelayed(tick, 5000)
+        } catch (error: Exception) {
+            headunitDisplay?.close(); headunitDisplay = null; mutableHeadunitPreview.value = false
+            event("Prueba local de Android Auto falló: ${error.javaClass.simpleName}")
+        }
+    }
+
+    fun stopHeadunitPreview() {
+        headunitPreviewBridge?.close(); headunitPreviewBridge = null
+        headunitDisplay?.close()
+        headunitDisplay = null
+        if (mutableHeadunitPreview.value) { CarModeService.stop(getApplication()); event("Prueba local de Android Auto detenida") }
+        mutableHeadunitPreview.value = false
+    }
+
     /** The virtual-display probe lives in a foreground service so it keeps running with the screen off. */
     fun startVirtualDisplayProbe() {
         if (displayProbe != null || VirtualProbeService.running.value) return
@@ -106,6 +158,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         event("Captura de pantalla autorizada para esta sesión; se usará tras PLAY del receptor")
     }
     fun event(message: String) {
+        // Events are already anonymized for export; mirroring them to the local log lets ADB follow a test.
+        android.util.Log.i("AionLink", message)
         val next = mutableEvents.value + "${java.time.Instant.now()} $message"
         droppedEvents += (next.size - 500).coerceAtLeast(0)
         mutableEvents.value = next.takeLast(500)
@@ -282,7 +336,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.36.0-research")
+        appendLine("AionLink Open 0.39.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -386,7 +440,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
     } } }
-    override fun onCleared() { stopOwnDisplayProbe(); VirtualProbeService.onReport = null; stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
+    override fun onCleared() { stopHeadunitPreview(); stopOwnDisplayProbe(); VirtualProbeService.onReport = null; stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -425,6 +479,7 @@ class MainActivity : ComponentActivity() {
     val highQuality by model.projection.quality.high.collectAsStateWithLifecycle()
     val carMode by model.projection.quality.carMode.collectAsStateWithLifecycle()
     val externalHeadunit by model.projection.quality.externalHeadunit.collectAsStateWithLifecycle()
+    val headunitPreview by model.headunitPreview.collectAsStateWithLifecycle()
     val forceLandscape by model.savings.landscape.collectAsStateWithLifecycle()
     val captureObservation by ProjectionService.observation.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -519,7 +574,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.36.0")
+            Text("Cliente USB + Bluetooth experimental • v0.39.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -546,12 +601,17 @@ class MainActivity : ComponentActivity() {
             if (carMode) {
                 OutlinedButton(onClick = { model.projection.quality.setExternalHeadunit(!externalHeadunit) },
                     enabled = videoStream.stage != "STREAMING" && videoStream.stage != "STARTING", modifier = Modifier.fillMaxWidth()) {
-                    Text(if (externalHeadunit) "Fuente pr?xima conexi?n: Open Headunit (experimental)" else "Fuente pr?xima conexi?n: panel AionLink")
+                    Text(if (externalHeadunit) "Fuente próxima conexión: Android Auto (Open Headunit en pantalla virtual)" else "Fuente próxima conexión: panel AionLink")
                 }
                 if (externalHeadunit) {
-                    Text("Experimental: inicia self mode en Open Headunit, conecta el coche y pulsa el bot?n cuando empiece el v?deo. Necesita la versi?n modificada. El t?ctil hacia Open Headunit a?n no est? implementado; imagen y pantalla apagada no verificadas.")
+                    Text("Experimental: las versiones compatibles y firmadas igual pueden compartir vídeo directamente, sin actividad en pantalla virtual. " +
+                        "Vídeo, pantalla apagada y audio aún no verificados. El táctil en este modo no está implementado.")
                     OutlinedButton(onClick = { model.event(model.projection.showHeadunitOnCarDisplay(context)) },
-                        modifier = Modifier.fillMaxWidth()) { Text("Mostrar Open Headunit en la pantalla virtual") }
+                        modifier = Modifier.fillMaxWidth()) { Text("Reintentar Android Auto en la pantalla virtual") }
+                    OutlinedButton(onClick = { if (headunitPreview) model.stopHeadunitPreview() else model.startHeadunitPreview(context) },
+                        enabled = videoStream.stage != "STREAMING" && videoStream.stage != "STARTING", modifier = Modifier.fillMaxWidth()) {
+                        Text(if (headunitPreview) "Detener prueba local de Android Auto" else "Prueba local sin coche: Android Auto en pantalla virtual")
+                    }
                 }
             }
             Text("Android Auto", style = MaterialTheme.typography.titleMedium)

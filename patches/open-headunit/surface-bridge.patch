@@ -1,0 +1,217 @@
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -57,0 +58,4 @@
++        android:protectionLevel="signature" />
++
++    <permission
++        android:name="com.andrerinas.openheadunit.permission.AIONLINK_SURFACE"
+@@ -277,0 +282,3 @@
++        <service android:name=".aap.AionLinkSurfaceService"
++            android:exported="true"
++            android:permission="com.andrerinas.openheadunit.permission.AIONLINK_SURFACE" />
+--- a/app/src/main/java/com/andrerinas/openheadunit/aap/AapService.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/AapService.kt
+@@ -791 +791 @@
+-                    commManager.pauseForSleep()
++                    if (!AionLinkSurfaceService.active) commManager.pauseForSleep()
+@@ -1614,0 +1615 @@
++        if (AionLinkSurfaceService.active) return false
+--- /dev/null
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
+@@ -0,0 +1,140 @@
++package com.andrerinas.openheadunit.aap
++
++import android.app.Service
++import android.content.Intent
++import android.os.Bundle
++import android.os.Handler
++import android.os.IBinder
++import android.os.Looper
++import android.os.Message
++import android.os.Messenger
++import android.os.SystemClock
++import android.view.Surface
++import com.andrerinas.openheadunit.App
++import com.andrerinas.openheadunit.aap.protocol.messages.TouchEvent
++import com.andrerinas.openheadunit.connection.CommManager
++import com.andrerinas.openheadunit.utils.HeadUnitScreenConfig
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.flow.collect
++import kotlinx.coroutines.launch
++
++/** Bound only with our signature permission; the caller explicitly supplies its own video surface. */
++class AionLinkSurfaceService : Service() {
++    companion object {
++        @Volatile var active = false
++            private set
++        private const val ATTACH = 1
++        private const val DETACH = 2
++        private const val TOUCH = 3
++        private const val STATUS = 10
++    }
++
++    private var surface: Surface? = null
++    private var owner: IBinder? = null
++    private var death: IBinder.DeathRecipient? = null
++    private var focusGeneration = 0
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
++    private val handler = Handler(Looper.getMainLooper()) { message ->
++        when (message.what) {
++            ATTACH -> {
++                @Suppress("DEPRECATION")
++                val next = message.data.getParcelable<Surface>("surface")
++                val client = message.replyTo
++                if (next == null || !next.isValid || client == null || surface != null) {
++                    next?.release()
++                    reply(client, false)
++                } else {
++                    val token = client.binder
++                    val watcher = IBinder.DeathRecipient {
++                        Handler(Looper.getMainLooper()).post { if (owner == token) detach() }
++                    }
++                    try {
++                        token.linkToDeath(watcher, 0)
++                        owner = token; death = watcher; surface = next
++                        App.provide(this).videoDecoder.setSurface(next)
++                        active = true
++                        scope.launch { advance(App.provide(this@AionLinkSurfaceService).commManager.connectionState.value) }
++                        reply(client, true)
++                    } catch (_: Exception) {
++                        detach(); next.release(); reply(client, false)
++                    }
++                }
++                true
++            }
++            DETACH -> { if (message.replyTo?.binder == owner) detach(); true }
++            TOUCH -> { if (active && message.replyTo?.binder == owner) handleTouch(message.data); true }
++            else -> false
++        }
++    }
++    private val messenger = Messenger(handler)
++
++    override fun onCreate() {
++        super.onCreate()
++        val comm = App.provide(this).commManager
++        scope.launch {
++            comm.connectionState.collect { state ->
++                advance(state)
++            }
++        }
++    }
++
++    private suspend fun advance(state: CommManager.ConnectionState) {
++        if (!active) return
++        val comm = App.provide(this).commManager
++        when (state) {
++            is CommManager.ConnectionState.Connected -> comm.startHandshake()
++            is CommManager.ConnectionState.HandshakeComplete -> comm.startReading()
++            is CommManager.ConnectionState.TransportStarted -> requestVideoFocus()
++            else -> Unit
++        }
++    }
++
++    override fun onBind(intent: Intent?): IBinder = messenger.binder
++    override fun onUnbind(intent: Intent?): Boolean { detach(); return false }
++    override fun onDestroy() { detach(); scope.cancel(); super.onDestroy() }
++
++    private fun detach() {
++        active = false
++        focusGeneration++
++        owner?.let { token -> death?.let { token.unlinkToDeath(it, 0) } }
++        owner = null; death = null
++        surface?.let {
++            App.provide(this).videoDecoder.detachSurfaceIfCurrent(it, "aionlink_surface_detached")
++            it.release()
++        }
++        surface = null
++    }
++
++    private fun requestVideoFocus() {
++        val generation = ++focusGeneration
++        val component = App.provide(this)
++        val handler = Handler(Looper.getMainLooper())
++        for (delay in longArrayOf(0, 1000, 3000)) {
++            handler.postDelayed({
++                if (active && generation == focusGeneration &&
++                    component.commManager.connectionState.value is CommManager.ConnectionState.TransportStarted &&
++                    (delay == 0L || component.videoDecoder.lastFrameRenderedMs == 0L)) {
++                    component.commManager.retakeVideoFocusForKeyframe()
++                }
++            }, delay)
++        }
++    }
++
++    private fun handleTouch(data: Bundle) {
++        val ids = data.getIntArray("ids") ?: return
++        val xs = data.getIntArray("xs") ?: return
++        val ys = data.getIntArray("ys") ?: return
++        val mapped = AionLinkTouchMapper.map(data.getInt("action"), ids, xs, ys,
++            data.getInt("width"), data.getInt("height"),
++            HeadUnitScreenConfig.getNegotiatedWidth(), HeadUnitScreenConfig.getNegotiatedHeight()) ?: return
++        App.provide(this).commManager.send(TouchEvent(SystemClock.elapsedRealtime(), mapped.action, mapped.index, mapped.pointers))
++    }
++
++    private fun reply(target: Messenger?, ok: Boolean) {
++        try { target?.send(Message.obtain(null, STATUS).apply { data = Bundle().apply { putBoolean("attached", ok) } }) }
++        catch (_: android.os.RemoteException) { detach() }
++    }
++}
+--- /dev/null
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkTouchMapper.kt
+@@ -0,0 +1,24 @@
++package com.andrerinas.openheadunit.aap
++
++/** Validates bridge input before converting coordinates to the negotiated video dimensions. */
++internal object AionLinkTouchMapper {
++    data class Mapped(val action: Int, val index: Int, val pointers: List<Triple<Int, Int, Int>>)
++
++    fun map(raw: Int, ids: IntArray, xs: IntArray, ys: IntArray,
++            width: Int, height: Int, videoWidth: Int, videoHeight: Int): Mapped? {
++        if (width <= 0 || height <= 0 || videoWidth <= 0 || videoHeight <= 0) return null
++        if (ids.size !in 1..10 || ids.size != xs.size || ids.size != ys.size) return null
++        if (ids.any { it < 0 } || ids.toSet().size != ids.size) return null
++        val action = raw and 0xff
++        if (action !in setOf(0, 1, 2, 5, 6) || raw and 0xffff0000.toInt() != 0) return null
++        val index = (raw ushr 8) and 0xff
++        if (index >= ids.size || (action !in setOf(5, 6) && index != 0)) return null
++        if (action in setOf(5, 6) && ids.size < 2) return null
++        val pointers = ids.indices.map { i ->
++            if (xs[i] !in 0 until width || ys[i] !in 0 until height) return null
++            Triple(ids[i], (xs[i].toLong() * videoWidth / width).toInt(),
++                (ys[i].toLong() * videoHeight / height).toInt())
++        }
++        return Mapped(action, index, pointers)
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/andrerinas/openheadunit/aap/AionLinkTouchMapperTest.kt
+@@ -0,0 +1,26 @@
++package com.andrerinas.openheadunit.aap
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class AionLinkTouchMapperTest {
++    @Test fun scalesPointerAndPreservesIndex() {
++        val result = AionLinkTouchMapper.map(5 or (1 shl 8), intArrayOf(2, 7),
++            intArrayOf(960, 0), intArrayOf(480, 959), 1920, 960, 1920, 1080)!!
++        assertEquals(5, result.action)
++        assertEquals(1, result.index)
++        assertEquals(listOf(Triple(2, 960, 540), Triple(7, 0, 1078)), result.pointers)
++    }
++
++    @Test fun rejectsMalformedPointersAndActions() {
++        fun map(raw: Int, ids: IntArray, xs: IntArray, ys: IntArray) =
++            AionLinkTouchMapper.map(raw, ids, xs, ys, 1920, 960, 1920, 1080)
++        assertNull(map(3, intArrayOf(0), intArrayOf(1), intArrayOf(1)))
++        assertNull(map(0, intArrayOf(0), intArrayOf(), intArrayOf(1)))
++        assertNull(map(5 or (2 shl 8), intArrayOf(0, 1), intArrayOf(1, 2), intArrayOf(1, 2)))
++        assertNull(map(2, intArrayOf(0, 0), intArrayOf(1, 2), intArrayOf(1, 2)))
++        assertNull(map(0, intArrayOf(0), intArrayOf(1920), intArrayOf(1)))
++        assertNull(AionLinkTouchMapper.map(0, intArrayOf(0), intArrayOf(1), intArrayOf(1), 0, 960, 1920, 1080))
++    }
++}

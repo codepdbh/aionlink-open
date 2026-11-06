@@ -53,6 +53,7 @@ class CarModeDisplay(
     private var surface: Surface? = null
     private var display: VirtualDisplay? = null
     private var presentation: Presentation? = null
+    private var relay: SurfaceRelay? = null
     private var dashboard: CarDashboardView? = null
     private var downTime = 0L
     @Volatile private var running = false
@@ -62,23 +63,32 @@ class CarModeDisplay(
         try {
             val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             codec = encoder
-            encoder.configure(ScreenEncoder.format(width, height, fps, bitrate), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.configure(ScreenEncoder.format(width, height, fps, bitrate, repeatFrames = !externalContent), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val input = encoder.createInputSurface(); surface = input
             encoder.start()
             running = true
             Thread({ drain(encoder) }, "AionLink-car-h264").apply { isDaemon = true; start() }
+            // In direct mode the other app is the sole producer for the encoder's Surface.
+            // External content: the producer draws into a GL relay that rescales into the encoder surface.
+            if (externalContent) { relay = SurfaceRelay(input, width, height); return }
             val virtual = context.getSystemService(DisplayManager::class.java).createVirtualDisplay(
                 "AionLink-car", width, height, DENSITY, input,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
             ) ?: error("No virtual display")
             display = virtual
-            if (!externalContent) presentation = object : Presentation(context, virtual.display) {
+            presentation = if (!externalContent) object : Presentation(context, virtual.display) {
                 override fun onCreate(savedInstanceState: Bundle?) {
                     super.onCreate(savedInstanceState)
                     setContentView(CarDashboardView(getContext()).also { dashboard = it })
                 }
                 override fun onStop() { dashboard?.release(); super.onStop() }
             }.also { it.show() }
+            // External content: a black placeholder window makes AionLink present on the display while the other
+            // app's activity is opened; it is removed afterwards because presentation windows sit above activities.
+            else Presentation(context, virtual.display).apply {
+                setContentView(View(context).apply { setBackgroundColor(android.graphics.Color.BLACK) })
+                show()
+            }
         } catch (error: Exception) {
             close()
             throw error
@@ -87,6 +97,17 @@ class CarModeDisplay(
 
     /** Only the display owner can request launching a consenting activity on this private display. */
     fun externalDisplayId(): Int? = if (externalContent) display?.display?.displayId else null
+
+    fun externalInputSurface(): Surface? = if (externalContent) relay?.input else null
+
+    /** Frames the GL relay passed to the encoder (external content only). */
+    val relayedFrames: Long get() = relay?.framesDrawn ?: 0
+    fun isExternalContent(): Boolean = externalContent
+
+    /** External content only: drop the placeholder once the other app's activity is on the display. Main thread. */
+    fun removePlaceholder() {
+        if (externalContent) { presentation?.dismiss(); presentation = null }
+    }
 
     fun requestKeyframe() {
         codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
@@ -142,6 +163,7 @@ class CarModeDisplay(
     /** Main thread only. */
     override fun close() {
         running = false
+        relay?.close(); relay = null
         presentation?.dismiss(); presentation = null
         dashboard = null
         display?.release(); display = null

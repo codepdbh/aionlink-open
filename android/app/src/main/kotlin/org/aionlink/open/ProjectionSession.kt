@@ -62,6 +62,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     @Volatile private var source: WfdSource? = null
     @Volatile private var encoder: ScreenEncoder? = null
     @Volatile private var carDisplay: CarModeDisplay? = null
+    @Volatile private var headunitBridge: HeadunitSurfaceBridge? = null
     @Volatile private var audioCapture: AudioCapture? = null
     @Volatile private var datagrams: DatagramSocket? = null
     @Volatile private var localAddress: Inet4Address? = null
@@ -148,9 +149,16 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 when (input) {
                     is UibcEvent.Key -> car.key(input.keyCode)
                     is UibcEvent.Touch -> input.pointers.firstOrNull()?.let { pointer ->
-                        car.touch(input.action, pointer.x.toFloat(), pointer.y.toFloat())
-                        if (car.externalDisplayId() == null) mutableTouch.value = mutableTouch.value.copy(injected = mutableTouch.value.injected + 1)
-                        else mutableTouch.value = mutableTouch.value.copy(stage = "TACTIL_HEADUNIT_NO_IMPLEMENTADO")
+                        if (!car.isExternalContent()) {
+                            car.touch(input.action, pointer.x.toFloat(), pointer.y.toFloat())
+                            mutableTouch.value = mutableTouch.value.copy(injected = mutableTouch.value.injected + 1)
+                        } else {
+                            // Android Auto via the surface bridge: coordinates are already in the encoded frame.
+                            val sent = headunitBridge?.touch(input.action, input.pointers.map { it.id }.toIntArray(),
+                                input.pointers.map { it.x }.toIntArray(), input.pointers.map { it.y }.toIntArray(), videoWidth, videoHeight)
+                            mutableTouch.value = if (sent == true) mutableTouch.value.copy(injected = mutableTouch.value.injected + 1)
+                                else mutableTouch.value.copy(stage = "TACTIL_PUENTE_SIN_CONEXION")
+                        }
                     }
                 }
                 return@post
@@ -180,10 +188,10 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         }
     }
 
+    /** Manual fallback when the automatic start was blocked (for example, AionLink was not on screen). */
     fun showHeadunitOnCarDisplay(activity: Context): String {
-        val id = carDisplay?.externalDisplayId()
-            ?: return "La pantalla experimental a?n no est? lista: selecciona la fuente antes de conectar y espera al v?deo"
-        return OpenHeadunit.showOnDisplay(activity, id)
+        return if (headunitBridge != null) "El puente de superficie ya fue solicitado; consulta los eventos"
+        else "Selecciona Open Headunit antes de conectar y espera al inicio del vídeo"
     }
 
     private fun play(play: WfdPlay) {
@@ -244,7 +252,13 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                     try {
                         CarModeDisplay(context, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
                             streamer.onAccessUnit(unit, ptsUs, key); report()
-                        }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit).also { carDisplay = it; it.start() }
+                        }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit).also { car ->
+                            carDisplay = car; car.start()
+                            car.externalInputSurface()?.let { surface ->
+                                HeadunitSurfaceBridge(context, surface) { result -> event("Open Headunit: $result") }
+                                    .also { bridge -> headunitBridge = bridge; bridge.start() }
+                            }
+                        }
                     } catch (error: Exception) { stopStream("CAR_START_${error.javaClass.simpleName}") }
                 }
             } else ScreenEncoder(granted!!, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
@@ -283,7 +297,12 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         savings.onStreamStopped()
         audioCapture?.close(); audioCapture = null
         encoder?.close(); encoder = null
-        carDisplay?.let { car -> carDisplay = null; main.post { car.close() } }
+        carDisplay?.let { car ->
+            carDisplay = null
+            // A session left open makes Android Auto's developer server fail the next one with "Already connected".
+            val bridge = headunitBridge; headunitBridge = null
+            main.post { bridge?.close(); car.close() }
+        }
         CarModeService.stop(context)
         datagrams?.close(); datagrams = null
         if (mutableStream.value.stage != "IDLE") {
