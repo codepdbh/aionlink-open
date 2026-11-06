@@ -218,8 +218,10 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     fun submitPin(pin: String, consentToAnonymized: Boolean, automaticAuth: Boolean) {
         val request = prepared ?: return
         // Without capture the car receives no video and closes the session after about 10 s, showing an error.
-        if (automaticAuth && !ProjectionService.captureReady) {
-            cancelPrepared("Conexión no iniciada: pulsa 'Preparar captura de pantalla y audio' antes de cada conexión. No se envió nada al coche")
+        if (automaticAuth && !ProjectionService.captureReady && !projection.quality.carMode.value) {
+            cancelPrepared(if (displayProbe != null || VirtualProbeService.running.value)
+                "Conexión no iniciada: hay una prueba local en curso. Detenla, pulsa 'Preparar captura de pantalla y audio' y vuelve a conectar"
+                else "Conexión no iniciada: pulsa 'Preparar captura de pantalla y audio' antes de cada conexión. No se envió nada al coche")
             return
         }
         val disclosure = request.local.platformAddress.disclosure
@@ -280,7 +282,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.34.0-research")
+        appendLine("AionLink Open 0.36.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -326,6 +328,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("Receptor wfd_uibc_capability=${rtsp.sinkUibc}")
         appendLine(projection.auxiliary.value)
         val video = projection.stream.value
+        appendLine("Modo de proyección: ${if (projection.quality.carMode.value) "MODO COCHE (panel propio, pantalla apagada)" else "ESPEJO"}; " +
+            "acceso a música/navegación=${CarInfoListener.granted(getApplication())}; Open Headunit instalado=${OpenHeadunit.installed(getApplication())}")
         appendLine("Calidad de imagen elegida: ${if (projection.quality.high.value) "ALTA (resolución de la pantalla del coche)" else "COMPATIBLE (1280x720)"}")
         appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}; cuadros/s=${video.fps}; escrituras lentas=${video.slowWrites}")
         val captured = ProjectionService.observation.value
@@ -419,6 +423,8 @@ class MainActivity : ComponentActivity() {
     val probeRunning = ownProbeRunning || virtualProbeRunning
     val carLauncher by model.savings.launcher.collectAsStateWithLifecycle()
     val highQuality by model.projection.quality.high.collectAsStateWithLifecycle()
+    val carMode by model.projection.quality.carMode.collectAsStateWithLifecycle()
+    val externalHeadunit by model.projection.quality.externalHeadunit.collectAsStateWithLifecycle()
     val forceLandscape by model.savings.landscape.collectAsStateWithLifecycle()
     val captureObservation by ProjectionService.observation.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -513,7 +519,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.34.0")
+            Text("Cliente USB + Bluetooth experimental • v0.36.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -522,9 +528,40 @@ class MainActivity : ComponentActivity() {
                 OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Solo comprobar puerto (sin autenticación)") }
             }
             Text("Proyección", style = MaterialTheme.typography.titleLarge)
-            Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
+            OutlinedButton(onClick = { model.projection.quality.setCarMode(!carMode) }, enabled = !probeRunning,
+                modifier = Modifier.fillMaxWidth()) {
+                Text(if (carMode) "Modo: COCHE (panel AionLink, pantalla del teléfono apagada)" else "Modo: ESPEJO (lo que muestra el teléfono)")
+            }
+            if (carMode) {
+                Text("Modo coche: el coche muestra reloj, música con controles y la indicación de Maps o Waze. Puedes apagar la pantalla del teléfono tras conectar. " +
+                    "El sonido llega por el Bluetooth del coche; si además pulsas «Preparar captura» se intenta enviar por AionLink.")
+                OutlinedButton(onClick = {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (CarInfoListener.granted(context)) "Música y navegación: acceso concedido" else "Permitir música y navegación (acceso a notificaciones)")
+                }
+            } else Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
             Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) }, enabled = !probeRunning,
-                modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
+                modifier = Modifier.fillMaxWidth()) { Text(if (carMode) "Preparar audio por AionLink (opcional)" else "Preparar captura de pantalla y audio") }
+            if (carMode) {
+                OutlinedButton(onClick = { model.projection.quality.setExternalHeadunit(!externalHeadunit) },
+                    enabled = videoStream.stage != "STREAMING" && videoStream.stage != "STARTING", modifier = Modifier.fillMaxWidth()) {
+                    Text(if (externalHeadunit) "Fuente pr?xima conexi?n: Open Headunit (experimental)" else "Fuente pr?xima conexi?n: panel AionLink")
+                }
+                if (externalHeadunit) {
+                    Text("Experimental: inicia self mode en Open Headunit, conecta el coche y pulsa el bot?n cuando empiece el v?deo. Necesita la versi?n modificada. El t?ctil hacia Open Headunit a?n no est? implementado; imagen y pantalla apagada no verificadas.")
+                    OutlinedButton(onClick = { model.event(model.projection.showHeadunitOnCarDisplay(context)) },
+                        modifier = Modifier.fillMaxWidth()) { Text("Mostrar Open Headunit en la pantalla virtual") }
+                }
+            }
+            Text("Android Auto", style = MaterialTheme.typography.titleMedium)
+            if (OpenHeadunit.installed(context)) {
+                Text("Open Headunit muestra Android Auto en este teléfono; en modo ESPEJO, AionLink lo lleva a la pantalla del coche con táctil y sonido. " +
+                    "Necesita la pantalla encendida (usa brillo mínimo).")
+                OutlinedButton(onClick = { model.event(OpenHeadunit.startSelfMode(context)) }, enabled = !carMode,
+                    modifier = Modifier.fillMaxWidth()) { Text("Abrir Android Auto (Open Headunit, self mode)") }
+            } else Text("Para ver Android Auto en el coche instala «Open Headunit» (Google Play) y activa en Android Auto el servidor de unidad principal " +
+                "para desarrolladores. Es una app de terceros; AionLink solo la abre y comparte su pantalla.")
             OutlinedButton(onClick = { model.projection.quality.setHigh(!highQuality) }, enabled = !probeRunning,
                 modifier = Modifier.fillMaxWidth()) {
                 Text(if (highQuality) "Calidad de imagen: ALTA (resolución del coche, más nítida)" else "Calidad de imagen: COMPATIBLE (1280x720)")
@@ -551,11 +588,11 @@ class MainActivity : ComponentActivity() {
                     android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }, modifier = Modifier.fillMaxWidth()) { Text(if (minBrightness) "Brillo mínimo al proyectar: activado" else "Brillo mínimo al proyectar: desactivado") }
             OutlinedButton(onClick = { if (probeRunning) model.stopDisplayProbe() else model.startDisplayProbe() },
-                modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Detener prueba de pantalla apagada" else "Probar pantalla propia apagada (hasta 11 min)") }
+                modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Detener prueba local" else "Prueba local (sin coche): dibujo propio, hasta 11 min") }
             OutlinedButton(onClick = { model.startVirtualDisplayProbe() }, enabled = !probeRunning,
-                modifier = Modifier.fillMaxWidth()) { Text("Probar pantalla virtual con pantalla apagada (servicio, hasta 12 min)") }
-            Text("La pantalla virtual de prueba solo muestra un patrón de AionLink; no inicia Samsung DeX ni envía vídeo al coche.")
-            if (probeRunning) Text("Apaga la pantalla durante la prueba. Después vuelve a abrir la app y guarda el diagnóstico. No se envía imagen al coche.")
+                modifier = Modifier.fillMaxWidth()) { Text("Prueba local (sin coche): pantalla virtual con pantalla apagada, 12 min") }
+            Text("Pruebas de laboratorio: NO envían nada al coche. Solo miden en el teléfono si el vídeo sigue generándose con la pantalla apagada. Para ver el teléfono en el coche usa «Preparar captura de pantalla y audio» y conecta.")
+            if (probeRunning) Text("Prueba local en curso: la conexión al coche está bloqueada hasta detenerla. Apaga la pantalla con el botón de encendido, espera y después guarda el diagnóstico.")
             Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")
             Text("CONTROL: ${controlChannel.stage} • recibidos ${controlChannel.received} • heartbeats ${controlChannel.heartbeatsReceived}/${controlChannel.heartbeatsSent}")
             Text(auxiliary)

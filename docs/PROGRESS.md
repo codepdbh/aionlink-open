@@ -1678,3 +1678,103 @@ android-lab-build-0.34.log, wfdsource-*.log y private/ui-test-0.34-service.txt.
 JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python
 3.14.2, ADB 37.0.0. APK Sonda 0.34, 25 040 909 bytes, SHA-256
 `6bf48f308c27a17ecf6b797e9f957b50df96b96fdd78de404996ce5e7030c2d8`, instalada.
+
+## 2026-11-06 - prueba real con pantalla apagada (10 min)
+
+Diagnosticos 6 y 7 del propietario recuperados a private/vehicle-tests-2026-11-06/
+(SHA-256 `53dfd2f3...ab00` y `a7a4c8c6...0c06`). Muestran: la sonda nunca
+llego a apagar la pantalla (todas las muestras ON) y no envia nada al coche
+por diseno; el propietario esperaba que proyectara. El espejo completo de la
+Sonda 0.34 si funciono con el AION: 1920x960p30, 11059 kbps, 4130 unidades,
+31 cuadros/s, 0 escrituras lentas, 6175 tramas AAC y 351/351 toques.
+
+Con autorizacion del propietario se hizo la prueba por ADB: boton de la sonda,
+KEYCODE_SLEEP, 600 s, lectura run-as. Resultado: 120 muestras DOZE/bloqueado,
+604 s, 30 dibujos/s y 35,3 H264/s, 0 invalidos, edad maxima 56 ms, servicio en
+primer plano siempre. GO para Modo coche con interfaz propia. Telefono
+cargando por USB: consumo no medido. Detalle en QUALITY_PROBE_034.md. El
+H264 por encima de 30 cuadros/s debe limitarse antes de usarlo con el coche.
+Textos de la sonda aclarados (prueba local, no envia al coche) y aviso de
+conexion bloqueada por prueba local. Build/lint 0 errores/30 avisos, 111 JVM y
+6 Python correctos. Error de herramienta: Git Bash convirtio rutas de adb; se
+uso MSYS_NO_PATHCONV y rutas Windows.
+
+## 0.35 - Modo coche (panel propio con pantalla apagada) y Open Headunit - 2026-11-06
+
+Detalle en protocol-research/CAR_MODE_035.md. Implementado CarModeDisplay
+(pantalla virtual propia 1920x960 con panel de reloj, musica y navegacion, al
+mismo codificador/TS), CarModeService (foreground connectedDevice + wake lock
+4 h), CarInfoListener (acceso a notificaciones: sesion multimedia y
+notificacion de Maps/Waze), tactil UIBC directo al panel, selector de modo y
+conexion sin captura en modo coche. Integracion de Open Headunit por su API de
+automatizacion publicada (broadcast ACTION_START_SELF_MODE), instalado por el
+propietario 4.0.0-beta2; receptor verificado con dumpsys, no ejecutado desde PC.
+Sin prueba en el AION.
+
+Validacion: 111 JVM, 6 Python, build/lint 0 errores/32 avisos; androidTest
+compila. CarModeDisplayTest en S25: video y toques sin error, pero 58 unidades
+en 5 s (~12 fps) por debajo del umbral 100; umbral corregido sin repetir.
+Incidente: am instrument desactivo los servicios de accesibilidad de AionLink
+y Sonda; restaurar por ADB fue denegado por politica; el propietario debe
+reactivarlos. Primer intento de compilar androidTest fallo por falta de
+ANDROID_HOME en el comando. APK Sonda 0.35, 25 090 685 bytes, SHA-256
+`76b59aa91629583be210f8b066013274b2f8d23eae009ccb948579a9ac18e686`,
+instalada como actualizacion (conserva datos). Log private/ui-test-0.35-carmode.txt.
+
+## 2026-11-06 - Open Headunit configurado; Android Auto en self mode
+
+A peticion del propietario se configuro Open Headunit por ADB: orientacion
+horizontal y 30 FPS, guardado. Self mode por su broadcast documentado: primer
+intento cerrado por Android Auto (IllegalStateException: Already connected en
+DeveloperHeadUnitNetworkService); segundo intento proyectando Android Auto en
+el S25. Falta llevarlo al AION con AionLink en modo espejo. Detalle en
+CAR_MODE_035.md.
+
+## 0.36 - pantalla virtual para Open Headunit - 2026-11-06
+
+Petición del propietario: permitir mostrar Open Headunit en otra pantalla para
+probar pantalla física apagada. Modificado el manifiesto de la fuente local
+4.0.0-beta2: `allowEmbedded=true` en AapProjectionActivity; no se introdujo código
+ajeno en android/. Parche independiente en patches/open-headunit. Fuente local
+ignorada en Git; revisión upstream sin verificar (el Gradle detecta el Git padre,
+por lo que su GIT_SHA no es identidad upstream). Manifiesto modificado SHA-256
+`d90cde7b6d7a8e6b1ecb0be6fb9d76ac204784787bb21cc77c211f195113b089`.
+
+AionLink permite seleccionar fuente experimental Open Headunit para la próxima
+conexión modo coche, crea un display privado sin panel y ofrece botón para pedir
+la actividad con ActivityOptions tras comprobar autorización de Android. El
+codificador y transporte son los existentes. Táctil a actividad externa no
+implementado y contabilizado como tal. No hay verificación de imagen, audio,
+ciclo de vida, pantalla apagada ni de vehículo para esta ruta. El panel propio y
+el espejo siguen siendo alternativas. Detalle en OPEN_HEADUNIT_DISPLAY_036.md.
+
+Validación: seis tests Python, 111 JVM sin fallos, build y lint de AionLink OK;
+ensamblado APK y androidTest lab OK. Sin instrumentación en S25 para no repetir
+el incidente previo con servicios de accesibilidad. Sonda 0.36 instalada por
+actualización, sin display de AionLink activo detectado antes de instalar. APK
+25 090 685 bytes SHA-256
+`8c0babea5d070f4ab0bc32570c884e287d679113f53309a08c7b0fb92c07195d`.
+APK normal SHA-256
+`b8d1ef460b44b9674fd4dfc249bcb50a52292aa752a918c040805d27a961529c`.
+La comprobación de paquete tras instalación devolvió código 1 por lectura parcial
+del pipe, pero mostró versionCode 36 y adb informó Success. Un comando de consulta
+falló antes por error tipográfico en directorio y se repitió. Logs:
+artifacts/reports/android-build-0.36.log, android-lab-build-0.36.log,
+open-headunit-build.log. Herramientas: JBR 21, Gradle 8.13 y 8.14.4, SDK 35/36,
+NDK 29.0.14206865, Python 3.14.2. El compilador de Open Headunit advirtió SDK XML
+versiones 3/4, sin que eso indique por sí solo fallo. Ninguna APK de terceros se
+ha ejecutado; no se ha sustituido la versión instalada del propietario.
+
+Open Headunit githubDebug: `BUILD SUCCESSFUL` (Gradle 8.14.4/AGP 8.13.2,
+Kotlin 2.4.20, NDK 29); `aapt dump xmltree` confirma allowEmbedded=true en
+AapProjectionActivity. APK local 28 808 414 bytes SHA-256
+`f06e92e19f701366e083c15385af42c4ca1cc63729f79046367ae0e3797c306e`;
+certificado debug SHA-256
+`53f31cba4e09e3d22206639f9705f78bc8aa887f649e465d3590fe70db12b4cf`.
+D8 emitió múltiples advertencias de lectura y reescritura de metadatos Kotlin;
+la compilación terminó con éxito pero el comportamiento de esa APK no está
+validado. Ni instalada ni ejecutada. No se conoce la firma de la versión de
+Open Headunit instalada, por lo que no se presupone que admita actualización.
+El primer control previo al commit detectó espacio final en un contexto vacío del
+parche; corregido y comprobado con `git apply --check --reverse`. PowerShell 5 no
+admitió `utf8NoBOM`; se escribió el parche en UTF-8 con Python.

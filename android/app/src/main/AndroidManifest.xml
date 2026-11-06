@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <!-- Owner-installed Open Headunit (Android Auto receiver), see OpenHeadunit.kt. -->
+        <package android:name="com.andrerinas.headunitrevived" />
     </queries>
     <application android:label="${applicationLabel}" android:allowBackup="false" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
@@ -35,6 +37,11 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
         <service android:name=".ProjectionService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <service android:name=".VirtualProbeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".CarModeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".CarInfoListener" android:exported="false" android:label="@string/car_info_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <service android:name=".TouchInjectionService" android:exported="false" android:label="@string/touch_service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>

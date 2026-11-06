@@ -29,3 +29,6 @@
 private/
 /aionlink-diagnostics*.txt
 **/keystore.properties
+
+# Third-party source checkout; keep only independently authored integration patch.
+/open-headunit-main/

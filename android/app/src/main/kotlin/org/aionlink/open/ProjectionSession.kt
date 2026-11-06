@@ -61,6 +61,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     @Volatile private var uibcServer: UibcServer? = null
     @Volatile private var source: WfdSource? = null
     @Volatile private var encoder: ScreenEncoder? = null
+    @Volatile private var carDisplay: CarModeDisplay? = null
     @Volatile private var audioCapture: AudioCapture? = null
     @Volatile private var datagrams: DatagramSocket? = null
     @Volatile private var localAddress: Inet4Address? = null
@@ -103,7 +104,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 if (frame.category == UCarFrameWriter.CATEGORY_CONTROL) when (frame.method) {
                     // Samsung lb/g.G: disconnect → notifyDisplayError(23); foreground → resumeDisplay.
                     SessionControlServer.METHOD_DISCONNECT -> main.post { stop("COCHE_PIDIO_DESCONEXION") }
-                    SessionControlServer.METHOD_CAR_TO_FOREGROUND -> { encoder?.requestKeyframe(); main.post { openLauncherOnce() } }
+                    SessionControlServer.METHOD_CAR_TO_FOREGROUND -> { encoder?.requestKeyframe(); carDisplay?.requestKeyframe(); main.post { openLauncherOnce() } }
                 }
             }, onSent = { event("Canal CONTROL envió: $it") }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
@@ -122,14 +123,14 @@ class ProjectionSession(private val context: Context, private val savings: Phone
             WfdSource(local, onStatus = { status ->
                 if (mutableRtsp.value.stage != status.stage) event("RTSP WFD: ${status.stage} ${status.detail}".trim())
                 mutableRtsp.value = status
-            }, onPlay = ::play, onIdrRequest = { encoder?.requestKeyframe() }, onStop = { reason -> stopStream("RTSP_$reason") }, onLog = event)
+            }, onPlay = ::play, onIdrRequest = { encoder?.requestKeyframe(); carDisplay?.requestKeyframe() }, onStop = { reason -> stopStream("RTSP_$reason") }, onLog = event)
                 .also { it.start(); source = it }
         } catch (_: java.io.IOException) { mutableRtsp.value = WfdStatus("BIND_FAILED") }
     }
 
     /** The car opened AionLink: show the owner's apps once, then leave the phone wherever the owner takes it. */
     private fun openLauncherOnce() {
-        if (launcherOpened || !savings.launcher.value) return
+        if (carDisplay != null || launcherOpened || !savings.launcher.value) return
         launcherOpened = true
         val service = TouchInjectionService.instance
         if (service == null) { event("Lanzador no abierto: el servicio de accesibilidad no está activo"); return }
@@ -142,6 +143,18 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         val counted = mutableTouch.value.copy(events = mutableTouch.value.events + 1)
         mutableTouch.value = counted
         main.post {
+            // Car mode: the encoded frame is AionLink's own display, so touches go straight to its views.
+            carDisplay?.let { car ->
+                when (input) {
+                    is UibcEvent.Key -> car.key(input.keyCode)
+                    is UibcEvent.Touch -> input.pointers.firstOrNull()?.let { pointer ->
+                        car.touch(input.action, pointer.x.toFloat(), pointer.y.toFloat())
+                        if (car.externalDisplayId() == null) mutableTouch.value = mutableTouch.value.copy(injected = mutableTouch.value.injected + 1)
+                        else mutableTouch.value = mutableTouch.value.copy(stage = "TACTIL_HEADUNIT_NO_IMPLEMENTADO")
+                    }
+                }
+                return@post
+            }
             val service = TouchInjectionService.instance
             if (service == null) {
                 mutableTouch.value = mutableTouch.value.copy(stage = "SIN_ACCESIBILIDAD")
@@ -167,9 +180,18 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         }
     }
 
+    fun showHeadunitOnCarDisplay(activity: Context): String {
+        val id = carDisplay?.externalDisplayId()
+            ?: return "La pantalla experimental a?n no est? lista: selecciona la fuente antes de conectar y espera al v?deo"
+        return OpenHeadunit.showOnDisplay(activity, id)
+    }
+
     private fun play(play: WfdPlay) {
+        val carMode = quality.carMode.value
+        val externalHeadunit = carMode && quality.externalHeadunit.value
+        // Car mode only needs a projection for optional audio capture; mirroring needs it for the image.
         val granted = ProjectionService.takeProjection()
-        if (granted == null) {
+        if (granted == null && !carMode) {
             mutableStream.value = StreamStatus("SIN_CAPTURA", "Pulsa 'Preparar captura de pantalla' antes de conectar")
             event("Vídeo no iniciado: captura sin preparar para esta conexión")
             return
@@ -177,7 +199,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         try {
             val local = localAddress ?: return
             val audioPermitted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            val withAudio = play.audioCodec == WfdFormats.AAC_48K_STEREO && audioPermitted
+            val withAudio = play.audioCodec == WfdFormats.AAC_48K_STEREO && audioPermitted && granted != null
             val send: (ByteArray) -> Unit = play.rtpTcp?.let { tcpSender(it) } ?: run {
                 val socket = DatagramSocket(null).apply { reuseAddress = true }
                 try { socket.bind(InetSocketAddress(local, WfdSource.RTP_SERVER_PORT)) }
@@ -194,6 +216,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 withAudio -> "AAC"
                 play.audioCodec == null -> "RECEPTOR_SIN_AUDIO"
                 !audioPermitted -> "SIN_PERMISO_AUDIO"
+                granted == null -> "POR_BLUETOOTH_DEL_COCHE"
                 else -> "LPCM_NO_IMPLEMENTADO"
             }
             var last = 0L
@@ -202,7 +225,8 @@ class ProjectionSession(private val context: Context, private val savings: Phone
             val requested = WfdFormats.encodeTarget(play.mode, play.carDisplay, quality.high.value)
             val target = if (requested.source == "CEA" || ScreenEncoder.supports(requested.width, requested.height, requested.fps)) requested
                 else WfdFormats.encodeTarget(play.mode, null, false).copy(source = "CEA_POR_CODIFICADOR")
-            val label = "${target.width}x${target.height}p${target.fps}; ${target.bitrate / 1000} kbps; origen=${target.source}"
+            val label = "${target.width}x${target.height}p${target.fps}; ${target.bitrate / 1000} kbps; origen=${target.source}; " +
+                if (externalHeadunit) "fuente=OPEN_HEADUNIT_EXPERIMENTAL" else if (carMode) "fuente=MODO_COCHE" else "fuente=ESPEJO"
             // Touch coordinates arrive in the frame the car displays, which is the encoded frame.
             videoWidth = target.width; videoHeight = target.height
             fun report() {
@@ -214,18 +238,27 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                         streamer.accessUnits * 1000 / (now - startedAt).coerceAtLeast(1), slowWrites)
                 }
             }
-            ScreenEncoder(granted, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
+            if (carMode) {
+                CarModeService.start(context)
+                main.post {
+                    try {
+                        CarModeDisplay(context, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
+                            streamer.onAccessUnit(unit, ptsUs, key); report()
+                        }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit).also { carDisplay = it; it.start() }
+                    } catch (error: Exception) { stopStream("CAR_START_${error.javaClass.simpleName}") }
+                }
+            } else ScreenEncoder(granted!!, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
                 streamer.onAccessUnit(unit, ptsUs, key); report()
             }, onError = { error -> stopStream(error) }).also { encoder = it; it.start(context.resources.displayMetrics.densityDpi) }
             mutableStream.value = StreamStatus("STARTING", label, audio = audioState)
             if (withAudio) try {
-                AudioCapture(granted, { frame, ptsUs -> streamer.onAudioFrame(frame, ptsUs) }, { error ->
+                AudioCapture(granted!!, { frame, ptsUs -> streamer.onAudioFrame(frame, ptsUs) }, { error ->
                     mutableStream.value = mutableStream.value.copy(audio = error); event("Audio detenido: $error")
                 }).also { audioCapture = it; it.start() }
             } catch (error: Exception) { mutableStream.value = mutableStream.value.copy(audio = "START_${error.javaClass.simpleName}") }
             event("Vídeo iniciado hacia el receptor: $label; M4=${play.mode.width}x${play.mode.height}p${play.mode.fps}; " +
                 "pantalla del coche=${play.carDisplay?.let { "${it.width}x${it.height}@${it.fps}" } ?: "no informada"}; audio=$audioState; táctil=${play.uibc}")
-            savings.onStreamStarted { streamer.accessUnits }
+            if (!carMode) savings.onStreamStarted { streamer.accessUnits }
         } catch (error: Exception) { stopStream("START_${error.javaClass.simpleName}") }
     }
 
@@ -250,6 +283,8 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         savings.onStreamStopped()
         audioCapture?.close(); audioCapture = null
         encoder?.close(); encoder = null
+        carDisplay?.let { car -> carDisplay = null; main.post { car.close() } }
+        CarModeService.stop(context)
         datagrams?.close(); datagrams = null
         if (mutableStream.value.stage != "IDLE") {
             mutableStream.value = mutableStream.value.copy(stage = "STOPPED", detail = reason)

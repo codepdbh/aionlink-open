@@ -1,0 +1,10 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -141,5 +141,6 @@
+         <activity
+             android:name=".aap.AapProjectionActivity"
++            android:allowEmbedded="true"
+             android:configChanges="uiMode|orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+             android:exported="true"
+             android:hardwareAccelerated="true"
