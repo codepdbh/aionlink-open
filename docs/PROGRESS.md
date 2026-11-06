@@ -1792,3 +1792,183 @@ restauración. APK instalada SHA-256
 `f06e92e19f701366e083c15385af42c4ca1cc63729f79046367ae0e3797c306e`.
 Instalación no implica ejecución ni validación funcional: no se ejecutó el APK ni
 se probó la integración ni el coche. ADB 37.0.0.
+
+## 0.37 - Android Auto (Open Headunit) en la pantalla virtual de AionLink - 2026-11-06
+
+Detalle en protocol-research/OPEN_HEADUNIT_DISPLAY_036.md. AionLink arranca
+automaticamente Open Headunit en su pantalla virtual al empezar el video en
+modo coche con esa fuente, con la secuencia medida (stop, self mode sin UI,
+0,3 s, actividad en la pantalla). Tactil por GestureDescription.setDisplayId
+desde el servicio de accesibilidad de AionLink. Prueba local sin coche y
+eventos tambien en logcat (ya anonimizados). Textos con mojibake corregidos.
+Medido por ADB: Android Auto se dibuja a 1920x960 en la pantalla virtual y se
+codifica; con el telefono bloqueado Android detiene la actividad de Open
+Headunit. Build/lint 0 errores/33 avisos; JVM y Python correctos. APK Sonda
+0.37 SHA-256 `103e024263cbb03fe2ae94d31ac637e5747e953a0dced161166fbaf360b3a84c`
+instalada como actualizacion. Prueba desde la propia app y en el AION pendientes.
+Prueba desde la app con el telefono desbloqueado: Android 17 deniega a
+AionLink colocar actividades (de Open Headunit o propias) en su pantalla
+virtual no confiable sin ACTIVITY_EMBEDDING; ADB si puede. Anfitriona con
+allowEmbedded y ventana de presencia no bastan. Build/lint 0 errores/33 avisos,
+JVM y Python correctos. APK Sonda 0.37 final SHA-256
+`1875db527c80c580bd82524ccbac8f85b32c293723d9127ede10dc8954d9e5a0`.
+Preferencias de AionLink Sonda restauradas (espejo, calidad alta).
+
+## 0.38 - comprobación de acceso a pantalla virtual - 2026-11-06
+
+Los intentos del S25 descritos arriba muestran denegación al iniciar actividades
+desde AionLink. La prueba que funcionó usó identidad ADB, por lo que no demuestra
+que la aplicación sin privilegios pueda hacerlo. AOSP documenta restricciones
+para pantallas virtuales no confiables. No se puede concluir que cualquier
+versión de Android deniegue todos los casos ni que `allowEmbedded` conceda por
+sí solo acceso a la pantalla privada.
+
+La aplicación ahora consulta `isActivityStartAllowedOnDisplay` antes de enviar
+STOP o iniciar self mode. Si se deniega, informa y no envía esos comandos. Al
+cerrar, cancela las tareas pendientes y solo pide STOP si AionLink inició esa
+secuencia. El mensaje de interfaz ya no promete pantalla apagada ni táctil
+funcional. Esto evita interrumpir Open Headunit en el caso denegado; no crea un
+puente Android Auto funcional ni soluciona la detención al bloquear el teléfono.
+
+Ruta para estudiar, no implementada ni validada: colaboración explícita entre
+ambas aplicaciones para entregar una superficie de vídeo mediante una interfaz
+protegida, sin iniciar una actividad en el display ajeno. La fuente local de
+Open Headunit conecta su decodificador a una `Surface`; no se ha establecido si
+esa arquitectura, el ciclo de vida, el control táctil y la política de contenido
+permitirían proyectar con pantalla apagada. Otra alternativa documentada por
+Android, el perfil de transmisión de apps de CompanionDeviceManager, exige un
+permiso que Android reserva fuera de las apps de terceros. Fuentes:
+https://source.android.com/docs/core/display/multi_display/testing-dev-environment
+y https://developer.android.com/reference/android/Manifest.permission#REQUEST_COMPANION_PROFILE_APP_STREAMING
+
+Validación: 6 pruebas Python, pruebas JVM y build/lint Android correctos
+(0 errores, 33 avisos); compilación lab correcta. No se ejecutó Open Headunit,
+instrumentación ni prueba en coche durante esta intervención. La Sonda se
+actualizó por ADB tras comprobar que no había pantalla virtual AionLink activa;
+Android informó versión 0.38.0, code 38. APK 25 107 205 bytes, SHA-256
+`b8abe44a58e5ecfc6ab31b9d0a6db630cfbb6042f71af8c01c2820233d4c3061`.
+APK normal SHA-256
+`00246fe08a1628775f6c19673c1c2d610a751033f64c1c74683fbaeb4f60525b`.
+Logs `artifacts/reports/android-build-0.38.log` y `android-lab-build-0.38.log`.
+Herramientas: JBR 21, Gradle 8.13, AGP 8.9.1, SDK 35, Python 3.14.2 y ADB 37.0.0.
+La primera edición mediante la consola de PowerShell convirtió acentos nuevos en
+interrogaciones y no coincidió con un texto de interfaz; se corrigió antes de
+compilar mediante parche UTF-8. Los cambios locales preexistentes se conservaron.
+
+## 0.39 - prototipo de superficie compartida - 2026-11-06
+
+Se implementó un prototipo que no lanza actividades en pantallas virtuales:
+AionLink entrega la superficie de entrada de su encoder H.264 a un servicio
+vinculado añadido a Open Headunit. El servicio instala esa superficie en el
+decodificador existente, supervisa las fases de conexión y arranca la lectura
+tras el handshake. Mientras la superficie está conectada, Open Headunit no
+abre la actividad de proyección ni pausa el decodificador por SCREEN_OFF.
+La salida codificada de AionLink sigue usando TS/RTP. Una aceptación de Binder
+no demuestra que existan imágenes ni que el códec acepte la superficie.
+
+La interfaz de Binder está protegida por un permiso `signature` declarado por
+Open Headunit. Las dos APK de laboratorio compiladas tienen el mismo certificado
+debug SHA-256 `53f31cba4e09e3d22206639f9705f78bc8aa887f649e465d3590fe70db12b4cf`.
+No deben usarse con firmas distintas. El servicio libera la superficie al
+desvincularse o perder el proceso cliente. El parche reproducible de Open
+Headunit es `patches/open-headunit/surface-bridge.patch`, aplicado sobre la
+fuente con el parche `allow-embedded.patch`; el código ajeno sigue fuera de Git.
+
+Pendiente: verificar intercambio real y compatibilidad de superficies de ambos
+códecs en S25, self mode, imagen, bloqueo de pantalla, audio, estabilidad y
+prueba de vehículo. Táctil en la nueva ruta aún no implementado. La selección de
+espejo y panel propio sigue disponible. No se ejecutó ninguna APK de terceros.
+No se instalaron las versiones nuevas: había un servicio de Open Headunit activo
+y AionLink Sonda estaba en primer plano; se evitó interrumpir la sesión o escritorio.
+
+Validación: 6 Python, pruebas JVM Android y build/lint AionLink sin errores
+(33 avisos); build Open Headunit githubDebug correcto, con advertencias de
+metadatos Kotlin por D8 ya observadas. Inspección estática del APK confirma el
+servicio y permiso de firma; no prueba ejecución. Se comprobó la aplicación del
+parche con `git apply --check --unidiff-zero`. APK Sonda 25 107 249 bytes,
+SHA-256 `2526123ad08a10805b3d296e1a0eac9a6156c21718a7f58355957685f63f2c04`;
+Open Headunit 33 010 945 bytes, SHA-256
+`7d979901999a7779c920f19c49ba41af6c5735c70b3859b50da671663c195cce`;
+APK AionLink normal SHA-256
+`df11b4bdc8672ea07d7f7d1337f8efaec256287e574e630bb1b90fd4ea3dbf24`.
+Logs: `android-build-0.39.log`, `android-lab-build-0.39.log`,
+`open-headunit-surface-final.log`. Herramientas JBR 21, Gradle 8.13/8.14.4,
+AGP 8.9.1/8.13.2, SDK 35/36, NDK 29, Python 3.14.2 y ADB 37.0.0.
+Un comando de PowerShell falló al usar expansión con llaves incompatible con
+ese shell; se repitió con rutas explícitas. `apksigner` recibió inicialmente
+dos APK en una sola llamada y falló; se verificaron por separado.
+
+## 2026-11-06 - fork público de Open Headunit
+
+Por solicitud del propietario se actualizó `main` del fork público
+https://github.com/codepdbh/open-headunit con el commit
+`83b2e10d4e5c21e639ec04762b6a955fe19985f1`, basado en upstream
+`ae74788d8312dd7a735775ddc21370f1741a7af1`. Incluye exclusivamente el cambio
+allowEmbedded, el puente experimental, README y documentación del fork; no se
+subieron archivos de investigación local ni APK. Se conservaron las licencias y
+avisos upstream. La rama del PR anterior no se modificó.
+
+El build `:app:assembleGithubDebug` se completó en una copia aislada del fork;
+los tests `:app:testGithubDebugUnitTest` iniciaron en la misma ejecución. Log
+`artifacts/reports/open-headunit-fork-validation.log`. Herramientas JBR 21,
+Gradle 8.14.4, AGP 8.13.2, SDK 36, NDK 29. El parche sin contexto generó avisos
+de finales de línea al aplicarlo; se normalizaron los archivos antes del commit.
+El estado de pruebas y limitaciones se debe comunicar por separado; la compilación
+no demuestra funcionalidad de pantalla apagada, audio ni táctil.
+
+La ejecución terminó `BUILD SUCCESSFUL`: 4 781 pruebas, 0 fallos, 0 errores y
+1 omitida (514 informes XML). APK githubDebug resultante 28 812 495 bytes,
+SHA-256 `3e8cb0f42d1ae3695ee5a82dc910eecd1850f136159b195db9587c47717cd200`;
+no se subió ni ejecutó. El build mostró avisos D8 de metadatos Kotlin y avisos
+del SDK; la compilación no demuestra interoperabilidad con AionLink.
+
+## 0.39 - puente de superficie hacia Open Headunit: prueba - 2026-11-06
+
+Revisado el puente del propietario (HeadunitSurfaceBridge + AionLinkSurfaceService
+por permiso de firma). Instalada su Open Headunit parcheada (APK 17:13, servicio
+presente) y AionLink Sonda 0.39. Superficie aceptada y sesion projecting, pero
+Android Auto no envia video: falta conceder el foco de video en el servicio del
+puente (retakeVideoFocusForKeyframe); a los 15 s timeout. AionLink: tactil por
+el puente (mensaje 3, multitactil). Build/lint 0 errores/33 avisos; JVM y
+Python correctos. Detalle en OPEN_HEADUNIT_DISPLAY_036.md.
+
+## 2026-11-06 - foco de vídeo y entrada táctil para el puente
+
+Según el diagnóstico compartido por el propietario, el puente aceptó la
+superficie y alcanzó `projecting`, pero no recibió cuadros antes del timeout.
+La falta de una solicitud de foco es una hipótesis de trabajo, no una causa
+verificada. Se añadió al servicio del fork una solicitud al llegar a
+`TransportStarted`, con reintentos a 1 y 3 segundos solo si no se ha observado
+un cuadro; los reintentos se invalidan al desvincular la superficie.
+
+El mensaje táctil 3 se entrega solo desde el cliente vinculado. Se validan tipo
+de acción, índice, dimensiones, cantidad, identificadores y límites; el cálculo
+usa enteros de 64 bits. El escalado directo del cuadro a la resolución negociada
+es una hipótesis: márgenes, proporciones y táctil real siguen sin verificar.
+No se modificó AionLink durante esta intervención. El parche independiente de
+Open Headunit se actualizó y se comprobó con `git apply --check --reverse`.
+
+El build y los tests `:app:testGithubDebugUnitTest :app:assembleGithubDebug`
+terminaron correctos: 4 783 pruebas, 0 fallos, 1 omitida. Persisten avisos D8 y
+de versiones del SDK. APK 33 015 030 bytes SHA-256
+`47a4029e4915b9017806b55a71b519ca63727f56664e8c22296d4cd87703aae2`,
+firmada con el mismo certificado público que la versión instalada (SHA-256
+`53f31cba4e09e3d22206639f9705f78bc8aa887f649e465d3590fe70db12b4cf`).
+Instalada en el S25 con `adb install -r` (Success), sin desinstalar ni ejecutar
+la APK; no había display de AionLink activo en el momento de actualizar. Se
+copió la APK instalada a `private/` solo para comprobar el certificado público.
+El comando de certificado devolvió código 1 por la redirección de advertencias
+de Java, aunque imprimió el certificado correctamente. Log
+`artifacts/reports/open-headunit-focus-touch.log`; JBR 21, Gradle 8.14.4,
+AGP 8.13.2, SDK 36, NDK 29 y ADB 37.0.0.
+
+Fork `codepdbh/open-headunit` actualizado en `main`, commit `d9522394`.
+No se ha ejecutado la prueba funcional de vídeo, pantalla apagada, audio ni
+táctil; los datos de Binder enviados no prueban que Android Auto los haya aplicado.
+Puente completado: con el foco de video del propietario y el rele GL de
+AionLink (SurfaceRelay), Android Auto llega al codificador a 30 fps y sigue
+con pantalla apagada y telefono bloqueado (90 s, 5089 H264, 54 292
+datagramas). Repeticion del codificador desactivada en modo rele. Build/lint
+0 errores/33 avisos; JVM y Python correctos. APK Sonda 0.39 SHA-256
+`055b39203e30dde3c476fd49940e082461636c2d6fe8c30b209a08587a8a62e4`.
+Prueba en el AION pendiente.

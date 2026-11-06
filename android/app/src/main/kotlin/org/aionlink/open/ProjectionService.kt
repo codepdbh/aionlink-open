@@ -113,7 +113,12 @@ class ScreenEncoder(
          * 50 or more frames queued, so sending above the negotiated rate delays the image by up to about a second. A
          * mirrored display follows the phone's refresh rate unless the frame rate is capped.
          */
-        fun format(width: Int, height: Int, fps: Int, bitrate: Int = WfdFormats.videoBitrate(width, height, fps)): MediaFormat =
+        /**
+         * [repeatFrames] fills gaps when the source only draws on change (mirror, dashboard). A continuous producer
+         * (Open Headunit through the GL relay) must not use it: repeats on top of 30 real fps gave ~41 fps on the S25.
+         */
+        fun format(width: Int, height: Int, fps: Int, bitrate: Int = WfdFormats.videoBitrate(width, height, fps),
+                   repeatFrames: Boolean = true): MediaFormat =
             MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -126,7 +131,7 @@ class ScreenEncoder(
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
                 setInteger(MediaFormat.KEY_LEVEL, avcLevel(width, height, fps))
-                setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / fps)
+                if (repeatFrames) setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / fps)
                 setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
             }
 

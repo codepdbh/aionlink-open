@@ -68,8 +68,13 @@ class TouchInjectionService : AccessibilityService() {
         carButtons = null
     }
 
-    /** [x]/[y] are already mapped to phone-screen pixels. Called on the main thread. */
-    fun touch(action: Int, x: Float, y: Float) {
+    /**
+     * [x]/[y] are pixels of [displayId]: the phone screen (mirror) or AionLink's virtual display, where an embedded
+     * Open Headunit lives. Gestures on another display need Android 11 (GestureDescription.setDisplayId).
+     * Returns false when the gesture cannot be sent. Called on the main thread.
+     */
+    fun touch(action: Int, x: Float, y: Float, displayId: Int = android.view.Display.DEFAULT_DISPLAY): Boolean {
+        if (displayId != android.view.Display.DEFAULT_DISPLAY && android.os.Build.VERSION.SDK_INT < 30) return false
         when (action and 0xFF) {
             ACTION_DOWN -> stroke = Stroke(Path().apply { moveTo(x, y) }, SystemClock.uptimeMillis(), x, y)
             ACTION_MOVE -> stroke?.let { if (it.lastX != x || it.lastY != y) { it.path.lineTo(x, y); it.lastX = x; it.lastY = y } }
@@ -77,12 +82,14 @@ class TouchInjectionService : AccessibilityService() {
                 stroke = null
                 if (current.lastX != x || current.lastY != y) current.path.lineTo(x, y)
                 val duration = (SystemClock.uptimeMillis() - current.startedAt).coerceIn(1L, GestureDescription.getMaxGestureDuration())
-                val gesture = GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(current.path, 0, duration)).build()
-                dispatchGesture(gesture, null, null)
+                val builder = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(current.path, 0, duration))
+                if (android.os.Build.VERSION.SDK_INT >= 30) builder.setDisplayId(displayId)
+                return dispatchGesture(builder.build(), null, null)
             }
             ACTION_CANCEL -> stroke = null
         }
+        return true
     }
 
     fun key(event: UibcEvent.Key) {

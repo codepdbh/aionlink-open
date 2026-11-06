@@ -21,6 +21,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="com.andrerinas.openheadunit.permission.AIONLINK_SURFACE" />
     <queries>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <!-- Owner-installed Open Headunit (Android Auto receiver), see OpenHeadunit.kt. -->
@@ -37,6 +38,9 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
         <service android:name=".ProjectionService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <service android:name=".VirtualProbeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <activity android:name=".CarDisplayHostActivity" android:exported="false" android:excludeFromRecents="true"
+            android:taskAffinity="org.aionlink.open.cardisplay" android:resizeableActivity="true" android:allowEmbedded="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
         <service android:name=".CarModeService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <service android:name=".CarInfoListener" android:exported="false" android:label="@string/car_info_label"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

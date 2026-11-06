@@ -8,7 +8,7 @@ android {
         applicationId = if (project.hasProperty("aionlinkLab")) "org.aionlink.open.lab" else "org.aionlink.open"
         manifestPlaceholders["applicationLabel"] = if (project.hasProperty("aionlinkLab")) "AionLink Sonda" else "AionLink Open"
         minSdk = 29; targetSdk = 35
-        versionCode = 36; versionName = "0.36.0-research"
+        versionCode = 39; versionName = "0.39.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Optional fixed signing key (android/keystore.properties, never committed) so every PC produces APKs that update
