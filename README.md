@@ -205,6 +205,7 @@ Consulta el [progreso detallado](docs/PROGRESS.md).
 | [Proyección 0.18](docs/protocol-research/PROJECTION_018.md) | CONTROL cifrado, fuente Wi-Fi Display, TS/RTP y captura |
 | [Táctil y audio 0.19](docs/protocol-research/TOUCH_AUDIO_019.md) | UIBC por accesibilidad, audio AAC en el flujo, MEDIA/SENSOR |
 | [Nitidez y sonda 0.34](docs/protocol-research/QUALITY_PROBE_034.md) | Resolución del coche, bitrate, sonda en primer plano y firma |
+| [Modo coche 0.35](docs/protocol-research/CAR_MODE_035.md) | Panel propio con pantalla apagada y Android Auto vía Open Headunit |
 | [RTP sobre TCP 0.20](docs/protocol-research/RTP_TCP_020.md) | Bloqueo en M3, sink del coche y significado del 80 % |
 | [Desconexión del coche 0.21](docs/protocol-research/CAR_DISCONNECT_021.md) | Método 23 con vídeo en curso e hipótesis descartadas |
 | [Modo integrado 0.22](docs/protocol-research/FUSION_MODE_022.md) | Error "integrated desktop", `workModes=4` y mensajes de apps |

@@ -17,4 +17,22 @@ class VideoQuality(context: Context) {
         preferences.edit().putBoolean("high", value).apply()
         mutableHigh.value = value
     }
+
+    /** Car mode sends AionLink's own dashboard (works with the screen off); otherwise the phone screen is mirrored. */
+    private val mutableCarMode = MutableStateFlow(preferences.getBoolean("car_mode", false))
+    val carMode = mutableCarMode.asStateFlow()
+
+    /** Opt-in source for the next car session; never switches an active virtual display. */
+    private val mutableExternalHeadunit = MutableStateFlow(preferences.getBoolean("external_headunit", false))
+    val externalHeadunit = mutableExternalHeadunit.asStateFlow()
+
+    fun setExternalHeadunit(value: Boolean) {
+        preferences.edit().putBoolean("external_headunit", value).apply()
+        mutableExternalHeadunit.value = value
+    }
+
+    fun setCarMode(value: Boolean) {
+        preferences.edit().putBoolean("car_mode", value).apply()
+        mutableCarMode.value = value
+    }
 }

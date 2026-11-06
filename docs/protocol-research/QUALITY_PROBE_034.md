@@ -83,3 +83,32 @@ local (excluido de Git) para firmar siempre con la misma clave en cualquier PC.
 
 Pendiente: prueba de 10 minutos con pantalla apagada (propietario) e imagen
 1920x960 en el AION.
+
+## Resultado de la prueba con pantalla apagada (6 de noviembre de 2026)
+
+Con autorización del propietario se inició la sonda en AionLink Sonda 0.34 desde
+su botón (vía ADB `input tap`), se apagó la pantalla con `KEYCODE_SLEEP`, se
+esperaron 600 s y se leyó el diario por `run-as`. Diario privado:
+`private/vehicle-tests-2026-11-06/screen-off-probe-journal.txt`.
+
+| Estado al final del intervalo | Muestras | Tiempo | Dibujos/s | H.264/s | TS/RTP/s |
+|---|---|---|---|---|---|
+| ON (antes de apagar) | 1 | 5 s | 119 | 29,7 | 29,7 |
+| OFF (transición) | 1 | 5 s | 113 | 29,8 | 29,8 |
+| **DOZE, bloqueado, no interactivo** | **120** | **604 s** | **30,0** | **35,3** | **35,3** |
+
+Sin intervalos sin vídeo: edad máxima del último H.264 56 ms, 0 paquetes
+inválidos, 0 descartados, el servicio siguió en primer plano en las 122
+muestras y la pantalla no volvió a encenderse. El teléfono estaba conectado por
+USB (batería 74 % → 75 %, 28,1 °C), así que el consumo no está medido.
+
+**Conclusión:** con la pantalla física apagada y bloqueada, una pantalla virtual
+propia en un servicio en primer plano sigue dibujando (~30/s) y el codificador
+sigue produciendo H.264 → TS/RTP durante al menos 10 minutos. Esto habilita un
+Modo coche con interfaz propia. No prueba red ICCOA, coche, táctil ni audio con
+pantalla apagada, ni el consumo sin cargador.
+
+Observación: con pantalla apagada el codificador entregó 35 cuadros/s, por
+encima de los 30 configurados (posiblemente por la repetición de cuadros). Antes
+de enviarlo al coche hay que limitarlo a la tasa negociada para no reproducir el
+retraso documentado en LAG_SAVINGS_026.

@@ -1,5 +1,11 @@
 # Cambios
 
+## 0.35.0-research — 2026-11-06
+
+- Modo coche: panel propio de AionLink (reloj, música con controles, navegación de Maps/Waze) enviado al coche sin captura de pantalla, para usar con el teléfono apagado.
+- Táctil del coche directo al panel; servicio en primer plano durante la sesión.
+- Botón para abrir Android Auto con Open Headunit (self mode) y llevarlo al coche en modo espejo.
+
 ## 0.34.0-research — 2026-11-06
 
 - Imagen más nítida: codifica a la resolución que pide el coche (1920x960) con bitrate proporcional (11 Mbps).
