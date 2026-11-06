@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins { id("com.android.application"); kotlin("android"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
     namespace = "org.aionlink.open"; compileSdk = 35
@@ -6,8 +8,24 @@ android {
         applicationId = if (project.hasProperty("aionlinkLab")) "org.aionlink.open.lab" else "org.aionlink.open"
         manifestPlaceholders["applicationLabel"] = if (project.hasProperty("aionlinkLab")) "AionLink Sonda" else "AionLink Open"
         minSdk = 29; targetSdk = 35
-        versionCode = 33; versionName = "0.33.0-research"
+        versionCode = 34; versionName = "0.34.0-research"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    // Optional fixed signing key (android/keystore.properties, never committed) so every PC produces APKs that update
+    // the same installed app. Without it Gradle uses this PC's debug key, which cannot update an app signed elsewhere.
+    val keystoreProperties = rootProject.file("keystore.properties")
+    if (keystoreProperties.exists()) {
+        val properties = Properties()
+        keystoreProperties.inputStream().use { stream -> properties.load(stream) }
+        signingConfigs {
+            create("shared") {
+                storeFile = rootProject.file(properties.getProperty("storeFile"))
+                storePassword = properties.getProperty("storePassword")
+                keyAlias = properties.getProperty("keyAlias")
+                keyPassword = properties.getProperty("keyPassword")
+            }
+        }
+        buildTypes { getByName("debug") { signingConfig = signingConfigs.getByName("shared") } }
     }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }

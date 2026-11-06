@@ -1,5 +1,12 @@
 # Cambios
 
+## 0.34.0-research — 2026-11-06
+
+- Imagen más nítida: codifica a la resolución que pide el coche (1920x960) con bitrate proporcional (11 Mbps).
+- Botón «Calidad de imagen» para volver al modo compatible 1280x720 si el coche lo necesita.
+- La sonda de pantalla apagada corre en un servicio en primer plano, a 1920x960, con batería y temperatura.
+- Firma opcional con `android/keystore.properties` y corrección de una carrera al cerrar RTSP.
+
 ## 0.28.0-research — 2026-11-03
 
 - Lanzador propio con las apps que elige el propietario, abierto al pulsar AionLink en el coche; se puede desactivar para compartir pantalla sin más.

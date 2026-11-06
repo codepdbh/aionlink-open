@@ -1636,3 +1636,45 @@ APK normal 25 008 081 bytes SHA-256
 por firma distinta. APK lab 25 008 085 bytes SHA-256
 `6a2b779b68e51df005d72dc93c7cb9333794d90ef4dfc36c82e5d084ccdb28c5`, instalada;
 paquete de tests retirado. El receptor DeX y el puente real siguen pendientes.
+
+## 0.34 - nitidez a la resolucion del coche y sonda en primer plano - 2026-11-06
+
+Solicitud del propietario: completar la sonda de pantalla apagada, resolver la
+firma y mejorar la imagen, que se ve borrosa. Analisis en
+protocol-research/QUALITY_PROBE_034.md. Causa de la borrosidad: el diagnostico
+0.28 registra video pedido por el coche 1920x960p30 (configuracion UCar y
+wfd_car_display_mode) y AionLink enviaba 1280x720p30 a 6 Mbps; el coche lo
+ampliaba 1,5 veces. Cadenas de libheycastcore indican que Samsung lee
+wfd_car_display_mode y ajusta bitrate para 1080p (inferencia, no codigo visto).
+
+Implementado: modo ALTA por defecto (codifica al tamano de pantalla del coche,
+multiplo de 16, fps no superior al negociado) y COMPATIBLE 1280x720; bitrate
+proporcional 4-16 Mbps (1920x960p30 = 11 Mbps), nivel H.264 calculado, GOP 2 s,
+comprobacion de soporte del codificador con retorno a CEA. M4 sin cambios. Sonda
+virtual en VirtualProbeService (foreground connectedDevice, 12 min, 1920x960,
+bateria y temperatura por muestra), independiente de la Activity. Firma opcional
+por android/keystore.properties (ignorado por Git). Carrera en WfdSource.close()
+corregida (@Synchronized). Sin verificar en el AION ni con pantalla apagada.
+
+Firma: la 0.28 instalada usa certificado SHA-256
+`e1092cde24dac3e15ebb0cafb70378157de13d5c8dfc696b12f4fed0479fc573`; este PC
+`53f31cba4e09e3d22206639f9705f78bc8aa887f649e465d3590fe70db12b4cf`. La clave de
+la 0.28 no esta en el perfil del propietario; no se revisaron otros perfiles
+(denegado por politica de credenciales). La app original sigue en 0.28.
+
+Diario de sonda previo (5 nov, 66 s, pantalla siempre ON, 1983 H264, 0 TS/RTP
+invalidos) leido por run-as; no habia prueba con pantalla apagada.
+
+Validacion: 6 Python; 111 JVM (9 core, 59 protocolo, 23 proyeccion, 4
+Bluetooth, 16 Wi-Fi); build/lint 0 errores/30 avisos (+1 UseKtx de estilo).
+S25 Sonda: VirtualProbeServiceTest y VirtualDisplayVideoProbeTest OK (2 tests),
+pantalla encendida. Errores durante el trabajo: dos compilaciones del script
+Gradle fallaron (load y java.util dentro de android{}); WfdSourceTest TCP fallo
+2 de 4 por la carrera, 6 de 6 tras el arreglo. Gradle desinstalo la Sonda al
+terminar la instrumentacion y se reinstalo (se perdieron sus preferencias
+locales de prueba). App original 0.28 y TouchInjectionService activos, sin
+servicios caidos. Logs: artifacts/reports/android-build-0.34.log,
+android-lab-build-0.34.log, wfdsource-*.log y private/ui-test-0.34-service.txt.
+JBR 21, Gradle 8.13, AGP 8.9.1, Kotlin 2.1.20, SDK/build-tools 35, Python
+3.14.2, ADB 37.0.0. APK Sonda 0.34, 25 040 909 bytes, SHA-256
+`6bf48f308c27a17ecf6b797e9f957b50df96b96fdd78de404996ce5e7030c2d8`, instalada.

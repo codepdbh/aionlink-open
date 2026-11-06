@@ -10,6 +10,12 @@ data class WfdVideoMode(val ceaIndex: Int, val width: Int, val height: Int, val 
 /** Port and transport the sink chose in wfd_client_rtp_ports. */
 data class WfdClientRtp(val port: Int, val tcp: Boolean)
 
+/** The car's own screen as reported in wfd_car_display_mode ("mode=0;display=1920:960;dpi=160;fps=30"). */
+data class CarDisplayMode(val mode: Int, val width: Int, val height: Int, val dpi: Int, val fps: Int)
+
+/** Size, rate and bitrate the phone actually encodes; may differ from the CEA mode declared in M4. */
+data class EncodeTarget(val width: Int, val height: Int, val fps: Int, val bitrate: Int, val source: String)
+
 object WfdFormats {
     /** Subset of the public Wi-Fi Display CEA resolution table that AionLink can encode. */
     private val cea = mapOf(0 to Triple(640, 480, 60), 5 to Triple(1280, 720, 30), 6 to Triple(1280, 720, 60),
@@ -66,6 +72,43 @@ object WfdFormats {
         val tcp = when (parts[0]) { "RTP/AVP/UDP;unicast" -> false; "RTP/AVP/TCP;unicast" -> true; else -> return null }
         return parts[1].toIntOrNull()?.takeIf { it in 1..65535 }?.let { WfdClientRtp(it, tcp) }
     }
+
+    /**
+     * Parses the format Samsung's display library reads with "mode=%d;display=%d:%d;dpi=%d;fps=%d" before logging
+     * "car display mode = %d,w=%d,h=%d,dpi=%d,fps=%d". Fields may appear in any order; out-of-range values → null.
+     */
+    fun parseCarDisplayMode(sinkValue: String?): CarDisplayMode? {
+        val fields = sinkValue?.split(';')?.mapNotNull { part ->
+            val index = part.indexOf('='); if (index <= 0) null else part.substring(0, index).trim() to part.substring(index + 1).trim()
+        }?.toMap() ?: return null
+        val size = fields["display"]?.split(':') ?: return null
+        val width = size.getOrNull(0)?.toIntOrNull() ?: return null
+        val height = size.getOrNull(1)?.toIntOrNull() ?: return null
+        if (width !in 320..3840 || height !in 240..2160) return null
+        val fps = fields["fps"]?.toIntOrNull()?.takeIf { it in 10..60 } ?: 30
+        return CarDisplayMode(fields["mode"]?.toIntOrNull() ?: 0, width, height, fields["dpi"]?.toIntOrNull() ?: 160, fps)
+    }
+
+    /**
+     * High quality encodes at the car's native screen size, as Samsung's library does after reading
+     * wfd_car_display_mode ("change video_bitrate to %d as 1080P"); otherwise the negotiated CEA mode is kept.
+     * Sizes are rounded down to multiples of 16 for hardware encoders. The rate never exceeds the negotiated one,
+     * because the receiver's decoder queue grows when frames arrive faster than it renders (see LAG_SAVINGS_026).
+     */
+    fun encodeTarget(mode: WfdVideoMode, car: CarDisplayMode?, highQuality: Boolean): EncodeTarget {
+        if (!highQuality || car == null) return EncodeTarget(mode.width, mode.height, mode.fps, videoBitrate(mode.width, mode.height, mode.fps), "CEA")
+        val width = car.width / 16 * 16
+        val height = car.height / 16 * 16
+        val fps = minOf(car.fps, mode.fps)
+        return EncodeTarget(width, height, fps, videoBitrate(width, height, fps), "PANTALLA_DEL_COCHE")
+    }
+
+    /**
+     * About 0.2 bits per pixel per frame for screen content in Constrained Baseline, bounded to 4–16 Mbps:
+     * 1280x720p30 → 5.5 Mbps, 1920x960p30 → 11 Mbps. Text and thin UI lines need far more than camera video.
+     */
+    fun videoBitrate(width: Int, height: Int, fps: Int): Int =
+        (width.toLong() * height * fps / 5).coerceIn(4_000_000L, 16_000_000L).toInt()
 
     /** Printable, bounded copy for diagnostics; the value describes the car display, not the user. */
     fun safeExcerpt(value: String?): String = value?.filter { it in ' '..'~' }?.take(160) ?: "ausente"

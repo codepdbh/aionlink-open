@@ -28,3 +28,4 @@
 *.log
 private/
 /aionlink-diagnostics*.txt
+**/keystore.properties

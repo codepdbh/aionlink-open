@@ -22,7 +22,10 @@ import org.aionlink.projection.TsRtpStreamer
 import java.util.concurrent.atomic.AtomicLong
 
 /** Local, private display containing only our test pattern; no DeX, capture or network. */
-class VirtualDisplayVideoProbe(private val context: Context, private val report: (String) -> Unit = {}) : AutoCloseable {
+class VirtualDisplayVideoProbe(
+    private val context: Context, private val width: Int = 1920, private val height: Int = 960,
+    private val report: (String) -> Unit = {}
+) : AutoCloseable {
     private val handler = Handler(Looper.getMainLooper())
     private val drawn = AtomicLong()
     private val encoded = AtomicLong()
@@ -67,7 +70,14 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
                 Display.STATE_DOZE, Display.STATE_DOZE_SUSPEND -> "DOZE"
                 else -> "OTHER_OR_UNKNOWN"
             }
-            report("Pantalla virtual propia: intervalo ms=$interval; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; TS/RTP cuadros=${nowMuxed - lastMuxed}; paquetes=${nowPackets - lastPackets}; descartados=${rejected.get()}; paquetes inválidos=${malformedPackets.get()}; último H264 hace ms=$age; estado al final: pantalla principal=$physicalState; interactivo=$interactive; bloqueado=$locked; no es DeX")
+            val battery = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            val level = battery?.let { b ->
+                val raw = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1); val scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+                if (raw >= 0 && scale > 0) "${raw * 100 / scale}%" else "?"
+            } ?: "?"
+            val temperature = battery?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+                ?.takeIf { it != Int.MIN_VALUE }?.let { "%.1f°C".format(it / 10f) } ?: "?"
+            report("Pantalla virtual propia ${width}x$height: intervalo ms=$interval; dibujados=${nowDrawn - lastDrawn}; H264=${nowEncoded - lastEncoded}; TS/RTP cuadros=${nowMuxed - lastMuxed}; paquetes=${nowPackets - lastPackets}; descartados=${rejected.get()}; paquetes inválidos=${malformedPackets.get()}; último H264 hace ms=$age; estado al final: pantalla principal=$physicalState; interactivo=$interactive; bloqueado=$locked; batería=$level; temperatura=$temperature; servicio en primer plano=${VirtualProbeService.running.value}; no es DeX")
             lastDrawn = nowDrawn; lastEncoded = nowEncoded
             lastMuxed = nowMuxed; lastPackets = nowPackets
             lastReportElapsed = now
@@ -81,7 +91,7 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
         try {
             val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             codec = encoder
-            encoder.configure(ScreenEncoder.format(1280, 720, 30), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.configure(ScreenEncoder.format(width, height, 30), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val input = encoder.createInputSurface(); surface = input
             encoder.start()
             wakeLock = context.getSystemService(PowerManager::class.java)
@@ -132,7 +142,7 @@ class VirtualDisplayVideoProbe(private val context: Context, private val report:
                 }
             }, "AionLink-virtual-h264").apply { isDaemon = true; start() }
             val virtual = context.getSystemService(DisplayManager::class.java).createVirtualDisplay(
-                "AionLink-virtual-probe", 1280, 720, 160, input,
+                "AionLink-virtual-probe", width, height, 160, input,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
             ) ?: error("No virtual display")
             display = virtual

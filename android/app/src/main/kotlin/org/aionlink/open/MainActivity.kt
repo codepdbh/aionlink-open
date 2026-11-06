@@ -54,7 +54,6 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     val savings = PhoneSavings(application, ::event)
     val projection = ProjectionSession(application, savings, ::event)
     private var displayProbe: OwnDisplayProbe? = null
-    private var virtualDisplayProbe: VirtualDisplayVideoProbe? = null
     private val virtualProbeJournal = VirtualProbeJournal(application)
     private val probeEnd = Runnable { stopDisplayProbe() }
     private val probeHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -62,7 +61,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     val probeRunning = mutableProbeRunning.asStateFlow()
     /** Local test without the car: lets the owner lock the phone and read in the export whether frames continue. */
     fun startDisplayProbe() {
-        if (displayProbe != null || virtualDisplayProbe != null) return
+        if (displayProbe != null || VirtualProbeService.running.value) return
         if (projection.active || ProjectionService.captureReady) {
             event("Detén la proyección y la captura antes de iniciar la sonda local")
             return
@@ -80,35 +79,26 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
     fun stopDisplayProbe() {
+        stopOwnDisplayProbe()
+        VirtualProbeService.stop(getApplication())
+    }
+    /** The activity-bound probe only; the foreground-service probe deliberately outlives the ViewModel. */
+    private fun stopOwnDisplayProbe() {
         probeHandler.removeCallbacks(probeEnd)
         displayProbe?.let { event("Sonda de pantalla propia terminada; vista=${it.framesRendered}; dibujo directo=${it.framesDrawn}; cuadros al encoder=${it.framesSubmitted}; H264=${it.framesEncoded}; reloj H264 no creciente=${it.timestampRegressions}"); it.close() }
         displayProbe = null
-        virtualDisplayProbe?.let {
-            val summary = "Pantalla virtual propia terminada; dibujados=${it.drawnFrames}; H264=${it.encodedFrames}; TS/RTP cuadros=${it.muxedFrames}; paquetes=${it.rtpPackets}; paquetes inválidos=${it.invalidPackets}; no es DeX"
-            event(summary); virtualProbeJournal.finish(summary); it.close()
-        }
-        virtualDisplayProbe = null
         mutableProbeRunning.value = false
     }
+    /** The virtual-display probe lives in a foreground service so it keeps running with the screen off. */
     fun startVirtualDisplayProbe() {
-        if (displayProbe != null || virtualDisplayProbe != null) return
+        if (displayProbe != null || VirtualProbeService.running.value) return
         if (projection.active || ProjectionService.captureReady) {
             event("Detén la proyección y la captura antes de iniciar la sonda local")
             return
         }
-        try {
-            virtualDisplayProbe = VirtualDisplayVideoProbe(getApplication()) { message ->
-                virtualProbeJournal.sample(message); event(message)
-            }
-            virtualDisplayProbe?.start()
-            virtualProbeJournal.start()
-            mutableProbeRunning.value = true
-            event("Sonda de pantalla virtual propia iniciada; hasta 11 minutos; no es DeX ni transmite al coche")
-            probeHandler.postDelayed(probeEnd, 11 * 60_000L)
-        } catch (error: Exception) {
-            virtualDisplayProbe?.close(); virtualDisplayProbe = null
-            event("Sonda virtual falló: ${error.javaClass.simpleName}")
-        }
+        VirtualProbeService.onReport = { message -> probeHandler.post { event(message) } }
+        VirtualProbeService.start(getApplication())
+        event("Sonda de pantalla virtual 1920x960 iniciada en servicio en primer plano; hasta 12 minutos; no es DeX ni transmite al coche")
     }
     fun captureGranted(resultCode: Int, data: android.content.Intent?) {
         if (resultCode != android.app.Activity.RESULT_OK || data == null) { event("Captura de pantalla no autorizada"); return }
@@ -290,7 +280,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.33.0-research")
+        appendLine("AionLink Open 0.34.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -336,6 +326,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine("Receptor wfd_uibc_capability=${rtsp.sinkUibc}")
         appendLine(projection.auxiliary.value)
         val video = projection.stream.value
+        appendLine("Calidad de imagen elegida: ${if (projection.quality.high.value) "ALTA (resolución de la pantalla del coche)" else "COMPATIBLE (1280x720)"}")
         appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}; cuadros/s=${video.fps}; escrituras lentas=${video.slowWrites}")
         val captured = ProjectionService.observation.value
         appendLine("Captura Android: etapa=${captured.stage}; tamaño=${captured.width ?: "desconocido"}x${captured.height ?: "desconocido"}; visible=${captured.visible ?: "desconocido"}; no identifica aplicación")
@@ -391,7 +382,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { discovery.devices.collect { devices ->
         if (devices.isNotEmpty() && session.state.value in setOf(ConnectionState.DISCOVERING, ConnectionState.DEVICE_FOUND)) session.deviceFound()
     } } }
-    override fun onCleared() { stopDisplayProbe(); stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
+    override fun onCleared() { stopOwnDisplayProbe(); VirtualProbeService.onReport = null; stopAll("ViewModel finalizado"); usb.close(); ProjectionService.stop(getApplication()) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -423,8 +414,11 @@ class MainActivity : ComponentActivity() {
     val touchState by model.projection.touch.collectAsStateWithLifecycle()
     val auxiliary by model.projection.auxiliary.collectAsStateWithLifecycle()
     val minBrightness by model.savings.enabled.collectAsStateWithLifecycle()
-    val probeRunning by model.probeRunning.collectAsStateWithLifecycle()
+    val ownProbeRunning by model.probeRunning.collectAsStateWithLifecycle()
+    val virtualProbeRunning by VirtualProbeService.running.collectAsStateWithLifecycle()
+    val probeRunning = ownProbeRunning || virtualProbeRunning
     val carLauncher by model.savings.launcher.collectAsStateWithLifecycle()
+    val highQuality by model.projection.quality.high.collectAsStateWithLifecycle()
     val forceLandscape by model.savings.landscape.collectAsStateWithLifecycle()
     val captureObservation by ProjectionService.observation.collectAsStateWithLifecycle()
     val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -519,7 +513,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.33.0")
+            Text("Cliente USB + Bluetooth experimental • v0.34.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
@@ -531,6 +525,10 @@ class MainActivity : ComponentActivity() {
             Text("Antes de conectar, autoriza la captura de pantalla. Tras AUTH, el teléfono escucha CONTROL y RTSP; el vídeo empieza cuando el coche envíe PLAY.")
             Button(onClick = { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) }, enabled = !probeRunning,
                 modifier = Modifier.fillMaxWidth()) { Text("Preparar captura de pantalla y audio") }
+            OutlinedButton(onClick = { model.projection.quality.setHigh(!highQuality) }, enabled = !probeRunning,
+                modifier = Modifier.fillMaxWidth()) {
+                Text(if (highQuality) "Calidad de imagen: ALTA (resolución del coche, más nítida)" else "Calidad de imagen: COMPATIBLE (1280x720)")
+            }
             if (Build.VERSION.SDK_INT >= 34) {
                 OutlinedButton(onClick = { showCaptureGuide = true }, enabled = !probeRunning, modifier = Modifier.fillMaxWidth()) { Text("Compartir una aplicación (experimental)") }
             }
@@ -555,7 +553,7 @@ class MainActivity : ComponentActivity() {
             OutlinedButton(onClick = { if (probeRunning) model.stopDisplayProbe() else model.startDisplayProbe() },
                 modifier = Modifier.fillMaxWidth()) { Text(if (probeRunning) "Detener prueba de pantalla apagada" else "Probar pantalla propia apagada (hasta 11 min)") }
             OutlinedButton(onClick = { model.startVirtualDisplayProbe() }, enabled = !probeRunning,
-                modifier = Modifier.fillMaxWidth()) { Text("Probar vídeo de pantalla virtual propia") }
+                modifier = Modifier.fillMaxWidth()) { Text("Probar pantalla virtual con pantalla apagada (servicio, hasta 12 min)") }
             Text("La pantalla virtual de prueba solo muestra un patrón de AionLink; no inicia Samsung DeX ni envía vídeo al coche.")
             if (probeRunning) Text("Apaga la pantalla durante la prueba. Después vuelve a abrir la app y guarda el diagnóstico. No se envía imagen al coche.")
             Text("Táctil: ${if (TouchInjectionService.instance != null) "servicio activo" else "servicio no activado"} • UIBC ${touchState.stage} • eventos ${touchState.events} • aplicados ${touchState.injected}")

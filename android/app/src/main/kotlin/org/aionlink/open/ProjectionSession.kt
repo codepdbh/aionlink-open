@@ -54,6 +54,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     private val mutableTouch = MutableStateFlow(TouchStatus())
     val touch = mutableTouch.asStateFlow()
     private val main = Handler(Looper.getMainLooper())
+    val quality = VideoQuality(context)
     @Volatile private var controlServer: SessionControlServer? = null
     @Volatile private var mediaServer: SessionControlServer? = null
     @Volatile private var sensorServer: SessionControlServer? = null
@@ -198,27 +199,32 @@ class ProjectionSession(private val context: Context, private val savings: Phone
             var last = 0L
             val startedAt = System.currentTimeMillis()
             slowWrites = 0
-            val mode = play.mode
-            videoWidth = mode.width; videoHeight = mode.height
+            val requested = WfdFormats.encodeTarget(play.mode, play.carDisplay, quality.high.value)
+            val target = if (requested.source == "CEA" || ScreenEncoder.supports(requested.width, requested.height, requested.fps)) requested
+                else WfdFormats.encodeTarget(play.mode, null, false).copy(source = "CEA_POR_CODIFICADOR")
+            val label = "${target.width}x${target.height}p${target.fps}; ${target.bitrate / 1000} kbps; origen=${target.source}"
+            // Touch coordinates arrive in the frame the car displays, which is the encoded frame.
+            videoWidth = target.width; videoHeight = target.height
             fun report() {
                 val now = System.currentTimeMillis()
                 if (now - last > 1000) {
                     last = now
-                    mutableStream.value = StreamStatus("STREAMING", "${mode.width}x${mode.height}p${mode.fps}",
+                    mutableStream.value = StreamStatus("STREAMING", label,
                         streamer.accessUnits, streamer.datagramsSent, streamer.audioFrames, mutableStream.value.audio,
                         streamer.accessUnits * 1000 / (now - startedAt).coerceAtLeast(1), slowWrites)
                 }
             }
-            ScreenEncoder(granted, mode.width, mode.height, mode.fps, { unit, ptsUs, key ->
+            ScreenEncoder(granted, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
                 streamer.onAccessUnit(unit, ptsUs, key); report()
-            }, { error -> stopStream(error) }).also { encoder = it; it.start(context.resources.displayMetrics.densityDpi) }
-            mutableStream.value = StreamStatus("STARTING", "${mode.width}x${mode.height}p${mode.fps}", audio = audioState)
+            }, onError = { error -> stopStream(error) }).also { encoder = it; it.start(context.resources.displayMetrics.densityDpi) }
+            mutableStream.value = StreamStatus("STARTING", label, audio = audioState)
             if (withAudio) try {
                 AudioCapture(granted, { frame, ptsUs -> streamer.onAudioFrame(frame, ptsUs) }, { error ->
                     mutableStream.value = mutableStream.value.copy(audio = error); event("Audio detenido: $error")
                 }).also { audioCapture = it; it.start() }
             } catch (error: Exception) { mutableStream.value = mutableStream.value.copy(audio = "START_${error.javaClass.simpleName}") }
-            event("Vídeo iniciado hacia el receptor: ${mode.width}x${mode.height}p${mode.fps}; audio=$audioState; táctil=${play.uibc}")
+            event("Vídeo iniciado hacia el receptor: $label; M4=${play.mode.width}x${play.mode.height}p${play.mode.fps}; " +
+                "pantalla del coche=${play.carDisplay?.let { "${it.width}x${it.height}@${it.fps}" } ?: "no informada"}; audio=$audioState; táctil=${play.uibc}")
             savings.onStreamStarted { streamer.accessUnits }
         } catch (error: Exception) { stopStream("START_${error.javaClass.simpleName}") }
     }
