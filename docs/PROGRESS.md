@@ -1778,3 +1778,17 @@ Open Headunit instalada, por lo que no se presupone que admita actualización.
 El primer control previo al commit detectó espacio final en un contexto vacío del
 parche; corregido y comprobado con `git apply --check --reverse`. PowerShell 5 no
 admitió `utf8NoBOM`; se escribió el parche en UTF-8 con Python.
+
+## 2026-11-06 - instalación de Open Headunit modificado
+
+El propietario pidió instalar la compilación modificada en S25. `adb install -r`
+falló con `INSTALL_FAILED_UPDATE_INCOMPATIBLE` por firmas distintas; se informó y
+el propietario autorizó expresamente desinstalar la versión existente. `adb
+uninstall com.andrerinas.headunitrevived` y luego `adb install` del APK debug
+modificado terminaron con Success. Se verificó versión 4.0.0-beta2, versionCode
+122, y que org.aionlink.open.lab sigue instalado. La desinstalación elimina los
+datos locales anteriores salvo restauración del sistema; no se comprobó su
+restauración. APK instalada SHA-256
+`f06e92e19f701366e083c15385af42c4ca1cc63729f79046367ae0e3797c306e`.
+Instalación no implica ejecución ni validación funcional: no se ejecutó el APK ni
+se probó la integración ni el coche. ADB 37.0.0.
