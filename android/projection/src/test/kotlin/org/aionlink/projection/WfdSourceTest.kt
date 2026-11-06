@@ -58,6 +58,7 @@ class WfdSourceTest {
             assertTrue(played.await(3, TimeUnit.SECONDS))
             assertEquals(19000, play!!.rtpPort); assertEquals(1280, play!!.mode.width)
             assertTrue(play!!.uibc); assertEquals(WfdFormats.LPCM_48K_STEREO, play!!.audioCodec)
+            assertNull(play!!.carDisplay) // "synthetic" is not a car display mode: keep the negotiated CEA size.
             send(sink, "TEARDOWN rtsp://127.0.0.1/wfd1.0/streamid=0 RTSP/1.0\r\nCSeq: 4\r\nSession: $session\r\n\r\n")
             assertEquals(200, source.read(input)!!.status)
         }

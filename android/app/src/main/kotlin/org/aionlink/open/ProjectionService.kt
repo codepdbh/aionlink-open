@@ -20,6 +20,7 @@ import android.os.Looper
 import android.os.IBinder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.aionlink.projection.WfdFormats
 
 /** Android callbacks report dimensions and visibility, not the identity of the chosen app. */
 data class CaptureObservation(val stage: String = "IDLE", val width: Int? = null, val height: Int? = null, val visible: Boolean? = null)
@@ -103,6 +104,7 @@ class ProjectionService : Service() {
 /** Hardware H.264 encoder fed by a mirrored virtual display; delivers Annex-B access units. */
 class ScreenEncoder(
     private val projection: MediaProjection, private val width: Int, private val height: Int, private val fps: Int,
+    private val bitrate: Int = WfdFormats.videoBitrate(width, height, fps),
     private val onAccessUnit: (ByteArray, Long, Boolean) -> Unit, private val onError: (String) -> Unit
 ) : AutoCloseable {
     companion object {
@@ -111,20 +113,45 @@ class ScreenEncoder(
          * 50 or more frames queued, so sending above the negotiated rate delays the image by up to about a second. A
          * mirrored display follows the phone's refresh rate unless the frame rate is capped.
          */
-        fun format(width: Int, height: Int, fps: Int): MediaFormat =
+        fun format(width: Int, height: Int, fps: Int, bitrate: Int = WfdFormats.videoBitrate(width, height, fps)): MediaFormat =
             MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, if (width >= 1280) 6_000_000 else 2_500_000)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, fps)
                 setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
                 setInteger(MediaFormat.KEY_LATENCY, 1)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                // The car link is TCP (no loss) and the car can ask for wfd_idr_request, so a longer interval spends the
+                // bits on detail instead of frequent keyframes.
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-                setInteger(MediaFormat.KEY_LEVEL, if (width >= 1280) MediaCodecInfo.CodecProfileLevel.AVCLevel31 else MediaCodecInfo.CodecProfileLevel.AVCLevel3)
+                setInteger(MediaFormat.KEY_LEVEL, avcLevel(width, height, fps))
                 setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / fps)
                 setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
             }
+
+        /** Smallest H.264 level (Table A-1) whose frame size and macroblock rate fit. */
+        fun avcLevel(width: Int, height: Int, fps: Int): Int {
+            val frame = ((width + 15) / 16) * ((height + 15) / 16)
+            val rate = frame.toLong() * fps
+            return when {
+                frame <= 1620 && rate <= 40_500 -> MediaCodecInfo.CodecProfileLevel.AVCLevel3
+                frame <= 3600 && rate <= 108_000 -> MediaCodecInfo.CodecProfileLevel.AVCLevel31
+                frame <= 5120 && rate <= 216_000 -> MediaCodecInfo.CodecProfileLevel.AVCLevel32
+                frame <= 8192 && rate <= 245_760 -> MediaCodecInfo.CodecProfileLevel.AVCLevel4
+                frame <= 8704 && rate <= 522_240 -> MediaCodecInfo.CodecProfileLevel.AVCLevel42
+                else -> MediaCodecInfo.CodecProfileLevel.AVCLevel51
+            }
+        }
+
+        /** Whether any AVC encoder on this phone accepts the size and rate. */
+        fun supports(width: Int, height: Int, fps: Int): Boolean = try {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                info.isEncoder && MediaFormat.MIMETYPE_VIDEO_AVC in info.supportedTypes &&
+                    info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).videoCapabilities
+                        .areSizeAndRateSupported(width, height, fps.toDouble())
+            }
+        } catch (_: Exception) { false }
     }
 
     private var codec: MediaCodec? = null
@@ -133,7 +160,7 @@ class ScreenEncoder(
     private var csd: ByteArray? = null
 
     fun start(densityDpi: Int) {
-        val format = format(width, height, fps)
+        val format = format(width, height, fps, bitrate)
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         val surface = encoder.createInputSurface()

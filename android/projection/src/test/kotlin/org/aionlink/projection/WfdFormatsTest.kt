@@ -28,4 +28,32 @@ class WfdFormatsTest {
         assertNull(WfdFormats.clientRtpPorts(null))
         assertEquals("1920x720", WfdFormats.safeExcerpt("1920x720\u0000"))
     }
+
+    /** Value format as recorded in the owner's 0.28 diagnostic; written here as a test literal. */
+    @Test fun parsesCarDisplayModeAndRejectsNonsense() {
+        assertEquals(CarDisplayMode(0, 1920, 960, 160, 30), WfdFormats.parseCarDisplayMode("mode=0;display=1920:960;dpi=160;fps=30"))
+        assertEquals(CarDisplayMode(0, 1280, 480, 160, 30), WfdFormats.parseCarDisplayMode("display=1280:480"))
+        assertNull(WfdFormats.parseCarDisplayMode("synthetic"))
+        assertNull(WfdFormats.parseCarDisplayMode("mode=0;display=99999:960;dpi=160;fps=30"))
+        assertNull(WfdFormats.parseCarDisplayMode("mode=0;display=1920;dpi=160"))
+        assertNull(WfdFormats.parseCarDisplayMode(null))
+    }
+
+    @Test fun highQualityEncodesAtCarScreenSizeWithinNegotiatedRate() {
+        val cea = WfdVideoMode(5, 1280, 720, 30, 1, 1)
+        val car = CarDisplayMode(0, 1920, 960, 160, 30)
+        val high = WfdFormats.encodeTarget(cea, car, highQuality = true)
+        assertEquals(EncodeTarget(1920, 960, 30, 11_059_200, "PANTALLA_DEL_COCHE"), high)
+        assertEquals(EncodeTarget(1280, 720, 30, 5_529_600, "CEA"), WfdFormats.encodeTarget(cea, car, highQuality = false))
+        assertEquals("CEA", WfdFormats.encodeTarget(cea, null, highQuality = true).source)
+        // Odd sizes are rounded down to multiples of 16; a faster car screen never raises the negotiated rate.
+        val odd = WfdFormats.encodeTarget(cea, CarDisplayMode(0, 1366, 770, 160, 60), highQuality = true)
+        assertEquals(1360 to 768, odd.width to odd.height); assertEquals(30, odd.fps)
+    }
+
+    @Test fun bitrateScalesWithPixelsAndIsBounded() {
+        assertEquals(4_000_000, WfdFormats.videoBitrate(640, 480, 30))
+        assertEquals(16_000_000, WfdFormats.videoBitrate(3840, 2160, 60))
+        assertTrue(WfdFormats.videoBitrate(1920, 960, 30) > 2 * WfdFormats.videoBitrate(1280, 720, 30) * 9 / 10)
+    }
 }

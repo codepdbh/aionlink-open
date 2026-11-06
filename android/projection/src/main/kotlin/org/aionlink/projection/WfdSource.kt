@@ -12,7 +12,7 @@ import java.net.Socket
 
 /** Parameters agreed in M4 and confirmed by SETUP/PLAY. */
 data class WfdPlay(val sink: InetAddress, val rtpPort: Int, val mode: WfdVideoMode, val audioCodec: String?, val uibc: Boolean,
-                   val rtpTcp: Socket? = null)
+                   val rtpTcp: Socket? = null, val carDisplay: CarDisplayMode? = null)
 
 data class WfdStatus(val stage: String = "IDLE", val detail: String = "", val carDisplayMode: String = "ausente",
                      val sinkVideoFormats: String = "ausente", val sinkAudioCodecs: String = "ausente",
@@ -65,6 +65,7 @@ class WfdSource(
     private var clientPort: Int? = null
     private var audioCodec: String? = null
     private var uibc = false
+    private var carDisplay: CarDisplayMode? = null
     private val sessionId = (java.security.SecureRandom().nextInt() and 0x7fffffff).coerceAtLeast(1)
     private var keepAlive: Thread? = null
     private var sinkLogLines = 0
@@ -124,6 +125,7 @@ class WfdSource(
             "M3" -> {
                 if (!ok) { publish("M3_FAILED", "status=${message.status}"); return }
                 val values = message.parameters()
+                carDisplay = WfdFormats.parseCarDisplayMode(values["wfd_car_display_mode"])
                 status = status.copy(carDisplayMode = WfdFormats.safeExcerpt(values["wfd_car_display_mode"]),
                     sinkVideoFormats = WfdFormats.safeExcerpt(values["wfd_video_formats"]),
                     sinkAudioCodecs = WfdFormats.safeExcerpt(values["wfd_audio_codecs"]),
@@ -197,7 +199,7 @@ class WfdSource(
                 val chosen = mode; val rtp = clientPort
                 if (chosen != null && rtp != null) {
                     publish("PLAYING", "${chosen.width}x${chosen.height}p${chosen.fps}")
-                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen, audioCodec, uibc, rtpTcp))
+                    onPlay(WfdPlay(socket.inetAddress, rtp, chosen, audioCodec, uibc, rtpTcp, carDisplay))
                     startKeepAlive(output)
                 }
             }
@@ -289,7 +291,8 @@ class WfdSource(
         return Message(lines[0], headers, String(body, Charsets.US_ASCII))
     }
 
-    override fun close() {
+    /** Synchronized so a caller racing the RTSP thread's own close returns only after the sockets are really closed. */
+    @Synchronized override fun close() {
         if (closed) return
         closed = true
         keepAlive?.interrupt()
