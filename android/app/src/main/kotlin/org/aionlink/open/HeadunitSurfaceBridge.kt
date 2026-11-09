@@ -17,6 +17,8 @@ import android.view.Surface
 class HeadunitSurfaceBridge(
     private val context: Context,
     private val surface: Surface,
+    /** Optional: the receiver writes decoded sound here instead of the phone speaker (newer Open Headunit only). */
+    private val audio: BridgeAudio? = null,
     private val report: (String) -> Unit,
 ) : AutoCloseable {
     private var bound = false
@@ -25,7 +27,12 @@ class HeadunitSurfaceBridge(
     private val reply = Messenger(Handler(Looper.getMainLooper()) { message ->
         if (message.what == 10 && !closed) {
             if (message.data.getBoolean("attached")) {
-                report("Superficie aceptada; solicitando self mode. Vídeo y pantalla apagada sin verificar")
+                val audioState = when {
+                    audio == null -> ""
+                    message.data.getBoolean("audio") -> "; audio por el puente aceptado"
+                    else -> "; esta versión de Open Headunit no admite audio por el puente (sonará en el teléfono)"
+                }
+                report("Superficie aceptada$audioState; solicitando self mode. Vídeo y pantalla apagada sin verificar")
                 OpenHeadunit.requestSelfModeWithoutUi(context)
             } else report("Open Headunit rechazó la superficie")
             true
@@ -38,9 +45,14 @@ class HeadunitSurfaceBridge(
             try {
                 remote?.send(Message.obtain(null, 1).apply {
                     replyTo = reply
-                    data = Bundle().apply { putParcelable("surface", surface) }
+                    data = Bundle().apply {
+                        putParcelable("surface", surface)
+                        audio?.let { putParcelable("audio", it.writeEnd) }
+                    }
                 })
             } catch (error: RemoteException) { report("Falló el envío de superficie: ${error.javaClass.simpleName}") }
+            // The receiver holds its own duplicate now; ours must close so the pipe ends when the receiver stops.
+            audio?.releaseWriteEnd()
         }
         override fun onServiceDisconnected(name: ComponentName) { remote = null; report("Puente de superficie desconectado") }
         override fun onBindingDied(name: ComponentName) { remote = null; report("El servicio de superficie terminó") }

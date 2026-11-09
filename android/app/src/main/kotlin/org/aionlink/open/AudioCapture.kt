@@ -10,6 +10,8 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import org.aionlink.projection.TsRtpStreamer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Captures other apps' playback with the public AudioPlaybackCapture API (Samsung's default music path also
@@ -20,12 +22,13 @@ import org.aionlink.projection.TsRtpStreamer
 class AudioCapture(
     private val projection: MediaProjection,
     private val onFrame: (ByteArray, Long) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    /** Peak of the captured PCM, 0 to 100, every [AacPump.LEVEL_REPORT_MS]: 0 means nothing capturable is playing. */
+    private val onLevel: (Int) -> Unit = {}
 ) : AutoCloseable {
-    companion object { const val SAMPLE_RATE = 48000; const val CHANNELS = 2 }
-    @Volatile private var running = false
+    companion object { const val SAMPLE_RATE = AacPump.SAMPLE_RATE; const val CHANNELS = AacPump.CHANNELS }
     private var record: AudioRecord? = null
-    private var codec: MediaCodec? = null
+    private var pump: AacPump? = null
 
     /** Caller must hold RECORD_AUDIO; checked in ProjectionSession before starting. */
     @SuppressLint("MissingPermission")
@@ -40,6 +43,33 @@ class AudioCapture(
         val capture = AudioRecord.Builder().setAudioFormat(format).setBufferSizeInBytes(maxOf(minimum, 8192) * 2)
             .setAudioPlaybackCaptureConfig(config).build()
         if (capture.state != AudioRecord.STATE_INITIALIZED) { capture.release(); onError("AUDIORECORD_NO_INICIALIZADO"); return }
+        record = capture
+        capture.startRecording()
+        pump = AacPump({ buffer, size -> capture.read(buffer, size).coerceAtLeast(0) }, onFrame, onError, onLevel).also { it.start() }
+    }
+
+    override fun close() {
+        pump?.close(); pump = null
+        record?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }
+        record = null
+    }
+}
+
+/**
+ * Encodes 48 kHz stereo PCM16 from [read] into AAC-LC frames with ADTS headers. [read] fills the buffer from its
+ * start with at most the given number of bytes and returns the count, 0 when nothing arrived, or negative on error.
+ */
+class AacPump(
+    private val read: (ByteBuffer, Int) -> Int,
+    private val onFrame: (ByteArray, Long) -> Unit,
+    private val onError: (String) -> Unit,
+    private val onLevel: (Int) -> Unit = {},
+) : AutoCloseable {
+    companion object { const val SAMPLE_RATE = 48000; const val CHANNELS = 2; const val LEVEL_REPORT_MS = 5000L }
+    @Volatile private var running = false
+    private var codec: MediaCodec? = null
+
+    fun start() {
         val aac = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, CHANNELS).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
@@ -48,23 +78,29 @@ class AudioCapture(
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
         encoder.configure(aac, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.start()
-        record = capture; codec = encoder
-        capture.startRecording()
+        codec = encoder
         running = true
-        Thread({ feed(capture, encoder) }, "AionLink-audio-in").apply { isDaemon = true; start() }
+        Thread({ feed(encoder) }, "AionLink-audio-in").apply { isDaemon = true; start() }
         Thread({ drain(encoder) }, "AionLink-audio-out").apply { isDaemon = true; start() }
     }
 
-    private fun feed(capture: AudioRecord, encoder: MediaCodec) {
+    private fun feed(encoder: MediaCodec) {
         val bytesPerSecond = SAMPLE_RATE * CHANNELS * 2L
+        var peak = 0
+        var reportedAt = System.currentTimeMillis()
         try {
             while (running) {
                 val index = encoder.dequeueInputBuffer(20_000)
                 if (index < 0) continue
                 val buffer = encoder.getInputBuffer(index) ?: continue
                 buffer.clear()
-                val count = capture.read(buffer, minOf(buffer.capacity(), 4096))
-                if (count <= 0) { encoder.queueInputBuffer(index, 0, 0, System.nanoTime() / 1000, 0); continue }
+                val count = read(buffer, minOf(buffer.capacity(), 4096))
+                if (count < 0) { encoder.queueInputBuffer(index, 0, 0, System.nanoTime() / 1000, 0); if (running) onError("AUDIO_IN_FIN"); return }
+                if (count == 0) { encoder.queueInputBuffer(index, 0, 0, System.nanoTime() / 1000, 0); continue }
+                val samples = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                for (i in 0 until count / 2) peak = maxOf(peak, kotlin.math.abs(samples.get(i).toInt()))
+                val now = System.currentTimeMillis()
+                if (now - reportedAt >= LEVEL_REPORT_MS) { onLevel(peak * 100 / 32768); peak = 0; reportedAt = now }
                 // Timestamp of the first sample in this chunk, on the same monotonic clock as the video encoder.
                 val ptsUs = System.nanoTime() / 1000 - count * 1_000_000L / bytesPerSecond
                 encoder.queueInputBuffer(index, 0, count, ptsUs, 0)
@@ -92,8 +128,6 @@ class AudioCapture(
 
     override fun close() {
         running = false
-        record?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }
-        record = null
         codec?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }
         codec = null
     }

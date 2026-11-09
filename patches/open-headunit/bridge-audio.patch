@@ -1,0 +1,569 @@
+--- a/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
+@@ -8,11 +8,13 @@
+ import android.os.Looper
+ import android.os.Message
+ import android.os.Messenger
++import android.os.ParcelFileDescriptor
+ import android.os.SystemClock
+ import android.view.Surface
+ import com.andrerinas.openheadunit.App
+ import com.andrerinas.openheadunit.aap.protocol.messages.TouchEvent
+ import com.andrerinas.openheadunit.connection.CommManager
++import com.andrerinas.openheadunit.decoder.audio.AionLinkAudioSink
+ import com.andrerinas.openheadunit.utils.HeadUnitScreenConfig
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+@@ -42,9 +44,12 @@
+             ATTACH -> {
+                 @Suppress("DEPRECATION")
+                 val next = message.data.getParcelable<Surface>("surface")
++                @Suppress("DEPRECATION")
++                val audioPipe = message.data.getParcelable<ParcelFileDescriptor>("audio")
+                 val client = message.replyTo
+                 if (next == null || !next.isValid || client == null || surface != null) {
+                     next?.release()
++                    try { audioPipe?.close() } catch (_: java.io.IOException) { }
+                     reply(client, false)
+                 } else {
+                     val token = client.binder
+@@ -56,10 +61,13 @@
+                         owner = token; death = watcher; surface = next
+                         App.provide(this).videoDecoder.setSurface(next)
+                         active = true
++                        // Optional: the client's pipe for decoded PCM, so sound reaches the car instead of the phone.
++                        audioPipe?.let { AionLinkAudioSink.attach(it) }
+                         scope.launch { advance(App.provide(this@AionLinkSurfaceService).commManager.connectionState.value) }
+-                        reply(client, true)
++                        reply(client, true, audio = audioPipe != null)
+                     } catch (_: Exception) {
+-                        detach(); next.release(); reply(client, false)
++                        detach(); next.release(); try { audioPipe?.close() } catch (_: java.io.IOException) { }
++                        reply(client, false)
+                     }
+                 }
+                 true
+@@ -97,6 +105,7 @@
+     override fun onDestroy() { detach(); scope.cancel(); super.onDestroy() }
+ 
+     private fun detach() {
++        AionLinkAudioSink.detach()
+         active = false
+         focusGeneration++
+         owner?.let { token -> death?.let { token.unlinkToDeath(it, 0) } }
+@@ -133,8 +142,10 @@
+         App.provide(this).commManager.send(TouchEvent(SystemClock.elapsedRealtime(), mapped.action, mapped.index, mapped.pointers))
+     }
+ 
+-    private fun reply(target: Messenger?, ok: Boolean) {
+-        try { target?.send(Message.obtain(null, STATUS).apply { data = Bundle().apply { putBoolean("attached", ok) } }) }
++    private fun reply(target: Messenger?, ok: Boolean, audio: Boolean = false) {
++        try { target?.send(Message.obtain(null, STATUS).apply { data = Bundle().apply {
++            putBoolean("attached", ok); putBoolean("audio", ok && audio)
++        } }) }
+         catch (_: android.os.RemoteException) { detach() }
+     }
+ }
+--- a/app/src/main/java/com/andrerinas/openheadunit/aap/protocol/messages/AudioSinkAnnouncementPolicy.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/protocol/messages/AudioSinkAnnouncementPolicy.kt
+@@ -13,6 +13,10 @@
+      * Why Self Mode drops them at all is not recorded anywhere in this repo and is not settled;
+      * only the gating is. A session that is not Self Mode's must never be affected by it.
+      */
+-    fun announcesMediaAndSpeech(sinkEnabled: Boolean, isSelfModeSession: Boolean): Boolean =
+-        sinkEnabled && !isSelfModeSession
++    fun announcesMediaAndSpeech(sinkEnabled: Boolean, isSelfModeSession: Boolean,
++                                externalAudioSink: Boolean = false): Boolean =
++        sinkEnabled && (!isSelfModeSession || externalAudioSink)
++
++    // externalAudioSink: an AionLink client attached a PCM pipe, so the decoded sound leaves this phone
++    // for the car instead of playing back on the speaker the projected phone itself uses.
+ }
+--- a/app/src/main/java/com/andrerinas/openheadunit/aap/protocol/messages/ServiceDiscoveryResponse.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/protocol/messages/ServiceDiscoveryResponse.kt
+@@ -190,7 +190,12 @@
+             // the launchers run and a failed launch left it set, so a Native AA session announced
+             // system sounds only and had no audio at all. See AudioSinkAnnouncementPolicy.
+             val isSelfModeSession = App.provide(context).commManager.isLoopbackSession
+-            if (AudioSinkAnnouncementPolicy.announcesMediaAndSpeech(audioConfig.enabled, isSelfModeSession)) {
++            val toAionLink = com.andrerinas.openheadunit.decoder.audio.AionLinkAudioSink.attached
++            com.andrerinas.openheadunit.decoder.audio.AionLinkAudioSink.noteSessionAnnouncement(
++                toAionLink && isSelfModeSession && audioConfig.enabled)
++            if (toAionLink && isSelfModeSession) AppLog.i("Self Mode with an AionLink audio pipe: announcing the " +
++                    "media and speech audio channels so their sound goes to the car instead of this phone")
++            if (AudioSinkAnnouncementPolicy.announcesMediaAndSpeech(audioConfig.enabled, isSelfModeSession, toAionLink)) {
+                 val audio1 = Control.Service.newBuilder().also { service ->
+                     service.id = Channel.ID_AU1
+                     service.mediaSinkService = Control.Service.MediaSinkService.newBuilder().also {
+--- a/app/src/main/java/com/andrerinas/openheadunit/decoder/audio/AudioOutputFactory.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/decoder/audio/AudioOutputFactory.kt
+@@ -4,7 +4,16 @@
+ import com.andrerinas.openheadunit.utils.AppLog
+ 
+ internal object AudioOutputFactory {
+-    fun create(stream: Int, attachHwDsp: Boolean, preferAAudio: Boolean): PcmOutput {
++    /**
++     * Mixer outputs outlive a single AionLink connection (the decoder and shared mixer are reused), so the route is
++     * re-evaluated on every attach and detach instead of once at creation: the car while a client holds a pipe,
++     * otherwise the phone output.
++     */
++    fun create(stream: Int, attachHwDsp: Boolean, preferAAudio: Boolean): PcmOutput =
++        RoutedPcmOutput({ AionLinkAudioSink.generation }, { AionLinkAudioSink.createOutput() },
++            { createDevice(stream, attachHwDsp, preferAAudio) })
++
++    private fun createDevice(stream: Int, attachHwDsp: Boolean, preferAAudio: Boolean): PcmOutput {
+         val fallback = { AudioTrackPcmOutput(stream, attachHwDsp) }
+         if (AudioOutputPolicy.useAAudio(Build.VERSION.SDK_INT, stream, attachHwDsp, preferAAudio)) {
+             try {
+@@ -18,3 +27,58 @@
+         return fallback()
+     }
+ }
++
++/**
++ * Switches between the AionLink pipe and the phone output when the client attaches or detaches. The switch happens on
++ * the mixer thread before a write, drops only PCM still queued in the old route, and advances [outputEpoch] so the
++ * mixer restarts its frame accounting. It is not an error, so it never consumes the output recovery budget.
++ */
++internal class RoutedPcmOutput(
++    private val routeGeneration: () -> Int,
++    private val external: () -> PcmOutput?,
++    private val device: () -> PcmOutput,
++) : PcmOutput {
++    private var generation = routeGeneration()
++    private var delegate: PcmOutput = external() ?: device()
++    private var requestedFrames = -1
++    private var started = false
++    private var swaps = 0L
++
++    private fun route(): PcmOutput {
++        val now = routeGeneration()
++        if (now == generation) return delegate
++        generation = now
++        val next = external() ?: device()
++        val old = delegate
++        delegate = next
++        swaps++
++        try { old.close() } catch (e: Exception) { AppLog.w("Audio route: closing ${old.name} failed: ${e.message}") }
++        if (requestedFrames > 0) next.setBufferFrames(maxOf(requestedFrames, next.minimumBufferFrames))
++        if (started) next.start()
++        AppLog.i("Audio route: ${old.name} -> ${next.name}")
++        return next
++    }
++
++    override val name get() = delegate.name
++    override val capacityFrames get() = delegate.capacityFrames
++    override val bufferFrames get() = delegate.bufferFrames
++    override val burstFrames get() = delegate.burstFrames
++    override val underruns get() = delegate.underruns
++    override val underrunsSupported get() = delegate.underrunsSupported
++    override val stagingBufferFrames get() = delegate.stagingBufferFrames
++    override val producerUnderruns get() = delegate.producerUnderruns
++    override val writtenFrames get() = delegate.writtenFrames
++    override fun playedFrames() = delegate.playedFrames()
++    override val minimumBufferFrames get() = delegate.minimumBufferFrames
++    override val recoveryProgressSamples get() = delegate.recoveryProgressSamples
++    override val outputEpoch get() = delegate.outputEpoch + swaps * 1_000_000L
++    override val hasPendingRecovery get() = delegate.hasPendingRecovery
++    override val writeRetryDelayMs get() = delegate.writeRetryDelayMs
++
++    override fun setBufferFrames(frames: Int): Int { requestedFrames = frames; return route().setBufferFrames(frames) }
++    override fun start() { started = true; route().start() }
++    override fun pause() { started = false; route().pause() }
++    override fun write(data: ShortArray, offset: Int, count: Int): Int = route().write(data, offset, count)
++    override fun close() = delegate.close()
++    override fun closeForRecovery(): ShortArray = delegate.closeForRecovery()
++}
+--- a/app/src/test/java/com/andrerinas/openheadunit/aap/protocol/messages/AudioSinkAnnouncementPolicyTest.kt
++++ b/app/src/test/java/com/andrerinas/openheadunit/aap/protocol/messages/AudioSinkAnnouncementPolicyTest.kt
+@@ -48,4 +48,13 @@
+         )
+     }
+ 
++    @Test
++    fun `an AionLink audio pipe restores media and speech in Self Mode but never overrides the setting`() {
++        assertTrue(AudioSinkAnnouncementPolicy.announcesMediaAndSpeech(
++            sinkEnabled = true, isSelfModeSession = true, externalAudioSink = true))
++        assertFalse(AudioSinkAnnouncementPolicy.announcesMediaAndSpeech(
++            sinkEnabled = false, isSelfModeSession = true, externalAudioSink = true))
++        assertFalse(AudioSinkAnnouncementPolicy.announcesMediaAndSpeech(
++            sinkEnabled = true, isSelfModeSession = true, externalAudioSink = false))
++    }
+ }
+--- /dev/null
++++ b/app/src/main/java/com/andrerinas/openheadunit/decoder/audio/AionLinkAudioSink.kt
+@@ -0,0 +1,222 @@
++package com.andrerinas.openheadunit.decoder.audio
++
++import android.os.ParcelFileDescriptor
++import com.andrerinas.openheadunit.utils.AppLog
++import java.io.FileOutputStream
++import java.io.IOException
++
++/**
++ * Optional PCM route to the AionLink client bound through AionLinkSurfaceService.
++ *
++ * While a pipe is attached, every mixer output created by [AudioOutputFactory] writes here instead of the
++ * phone speaker. One pump thread consumes all outputs at the real 48 kHz rate (like a device would), sums
++ * them and writes interleaved little-endian PCM16 stereo to the pipe, inserting silence when idle so the
++ * client receives a continuous stream. When the pipe fails or is detached, outputs report a write error
++ * and RecoveringPcmOutput reopens them through the factory, which then selects the normal phone output.
++ */
++internal object AionLinkAudioSink {
++    const val SAMPLE_RATE = 48000
++    private const val CHANNELS = 2
++    private const val TICK_MS = 10L
++    private val lock = Object()
++    private var stream: FileOutputStream? = null
++    /** Changes on every attach and detach; [RoutedPcmOutput] compares it to switch routes. */
++    @Volatile var generation = 0
++        private set
++    private val outputs = ArrayList<AionLinkPcmOutput>()
++    @Volatile var framesSent = 0L
++        private set
++
++    val attached: Boolean get() = synchronized(lock) { stream != null }
++
++    /**
++     * True while the current Self Mode session announced media and speech only because a client was attached. Between
++     * client connections Android Auto keeps capturing the phone's media for that session, so playing it locally would
++     * loop it back; such outputs then discard PCM at the real rate until the client returns or a new session starts.
++     */
++    @Volatile var selfModeMediaForClient = false
++        private set
++
++    /** Called by service discovery for every new session. */
++    fun noteSessionAnnouncement(mediaForClient: Boolean) {
++        synchronized(lock) {
++            if (selfModeMediaForClient == mediaForClient) return
++            selfModeMediaForClient = mediaForClient
++            if (stream == null) generation++ // reroute detached outputs
++        }
++    }
++
++    fun attach(pipe: ParcelFileDescriptor) {
++        val next = ParcelFileDescriptor.AutoCloseOutputStream(pipe)
++        val token: Int
++        synchronized(lock) {
++            closeLocked()
++            stream = next
++            token = ++generation
++            framesSent = 0
++        }
++        AppLog.i("AionLinkAudioSink: pipe attached; new audio outputs go to AionLink")
++        Thread({ pump(next, token) }, "AionLink-audio-pump").apply { isDaemon = true; start() }
++    }
++
++    fun detach() {
++        synchronized(lock) { closeLocked() }
++    }
++
++    private fun closeLocked() {
++        val old = stream ?: return
++        stream = null
++        generation++
++        outputs.forEach { it.fail() }
++        outputs.clear()
++        try { old.close() } catch (_: IOException) { }
++        AppLog.i("AionLinkAudioSink: pipe detached; audio returns to the phone output")
++    }
++
++    /** Null when the caller should use the normal device output. */
++    fun createOutput(): PcmOutput? = synchronized(lock) {
++        when {
++            stream != null -> AionLinkPcmOutput().also { outputs.add(it) }
++            selfModeMediaForClient -> DiscardPcmOutput()
++            else -> null
++        }
++    }
++
++    fun release(output: AionLinkPcmOutput) { synchronized(lock) { outputs.remove(output) } }
++
++    private fun pump(out: FileOutputStream, token: Int) {
++        val startNs = System.nanoTime()
++        var sent = 0L
++        var mix = IntArray(0)
++        var bytes = ByteArray(0)
++        try {
++            while (true) {
++                val due = (System.nanoTime() - startNs) / 1000 * SAMPLE_RATE / 1_000_000 - sent
++                if (due <= 0) { Thread.sleep(TICK_MS); continue }
++                val frames = minOf(due, SAMPLE_RATE / 10L).toInt() // never burst more than 100 ms after a stall
++                if (mix.size < frames * CHANNELS) { mix = IntArray(frames * CHANNELS); bytes = ByteArray(frames * CHANNELS * 2) }
++                java.util.Arrays.fill(mix, 0, frames * CHANNELS, 0)
++                synchronized(lock) {
++                    if (generation != token) return
++                    outputs.forEach { it.drainInto(mix, frames) }
++                }
++                for (i in 0 until frames * CHANNELS) {
++                    val s = mix[i].coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
++                    bytes[2 * i] = s.toByte(); bytes[2 * i + 1] = (s shr 8).toByte()
++                }
++                out.write(bytes, 0, frames * CHANNELS * 2) // blocks if the client reads slowly
++                sent += frames
++                framesSent = sent
++                // Re-anchor after a long block so we do not try to catch up with stale time.
++                if ((System.nanoTime() - startNs) / 1000 * SAMPLE_RATE / 1_000_000 - sent > SAMPLE_RATE / 2) {
++                    sent = (System.nanoTime() - startNs) / 1000 * SAMPLE_RATE / 1_000_000
++                }
++            }
++        } catch (_: InterruptedException) {
++        } catch (e: IOException) {
++            AppLog.w("AionLinkAudioSink: pipe closed by client: ${e.message}")
++        } finally {
++            synchronized(lock) { if (generation == token) closeLocked() }
++        }
++    }
++}
++
++/** A software device buffer drained in real time by [AionLinkAudioSink]. Mixer thread writes, pump reads. */
++internal class AionLinkPcmOutput : PcmOutput {
++    private companion object { const val CAPACITY = 9600; const val CHANNELS = 2 }
++    private val ring = ShortArray(CAPACITY * CHANNELS)
++    private var readPos = 0
++    private var queued = 0 // frames
++    private var target = 1920
++    private var playing = false
++    @Volatile private var failed = false
++    private var written = 0L
++    private var played = 0L
++    private var underrunCount = 0
++
++    override val name = "AionLink"
++    override val capacityFrames = CAPACITY
++    override val bufferFrames: Int get() = synchronized(this) { target }
++    override val burstFrames = 480
++    override val underruns: Int get() = synchronized(this) { underrunCount }
++    override val minimumBufferFrames = 960
++    override val writtenFrames: Long get() = synchronized(this) { written }
++    override fun playedFrames(): Long = synchronized(this) { played }
++
++    override fun setBufferFrames(frames: Int): Int = synchronized(this) {
++        target = frames.coerceIn(minimumBufferFrames, CAPACITY); target
++    }
++    override fun start() { synchronized(this) { playing = true } }
++    override fun pause() { synchronized(this) { playing = false; queued = 0; written = 0; played = 0 } }
++
++    override fun write(data: ShortArray, offset: Int, count: Int): Int {
++        if (count < 0 || count % CHANNELS != 0) throw IllegalArgumentException("count=$count")
++        if (failed) return -6
++        synchronized(this) {
++            val frames = minOf(count / CHANNELS, target - queued)
++            if (frames <= 0) return 0
++            var w = (readPos + queued) % CAPACITY
++            for (f in 0 until frames) {
++                ring[w * 2] = data[offset + f * 2]; ring[w * 2 + 1] = data[offset + f * 2 + 1]
++                w = (w + 1) % CAPACITY
++            }
++            queued += frames
++            written += frames
++            return frames * CHANNELS
++        }
++    }
++
++    fun drainInto(mix: IntArray, frames: Int) {
++      synchronized(this) {
++        if (!playing) return
++        val n = minOf(frames, queued)
++        if (n < frames && written > 0) underrunCount++
++        for (f in 0 until n) {
++            mix[f * 2] += ring[readPos * 2]; mix[f * 2 + 1] += ring[readPos * 2 + 1]
++            readPos = (readPos + 1) % CAPACITY
++        }
++        queued -= n
++        played += n
++      }
++    }
++
++    fun fail() { failed = true }
++
++    override fun close() { AionLinkAudioSink.release(this); synchronized(this) { queued = 0 } }
++}
++
++/** Accepts PCM at the real 48 kHz rate and drops it (no device, no busy loop). */
++internal class DiscardPcmOutput(private val nanoTime: () -> Long = System::nanoTime) : PcmOutput {
++    private companion object { const val CAPACITY = 9600 }
++    private var target = 1920
++    private var queued = 0.0 // frames notionally waiting to be "played"
++    private var lastNs = -1L
++    private var written = 0L
++    private var playing = false
++    override val name = "Discard"
++    override val capacityFrames = CAPACITY
++    override val bufferFrames get() = target
++    override val burstFrames = 480
++    override val underruns = 0
++    override val underrunsSupported = false
++    override val minimumBufferFrames = 960
++    override val writtenFrames get() = written
++    override fun playedFrames(): Long { advance(); return written - queued.toLong() }
++    override fun setBufferFrames(frames: Int): Int { target = frames.coerceIn(minimumBufferFrames, CAPACITY); return target }
++    override fun start() { playing = true; lastNs = nanoTime() }
++    override fun pause() { playing = false; queued = 0.0; written = 0 }
++    private fun advance() {
++        val now = nanoTime()
++        if (playing && lastNs >= 0) queued = maxOf(0.0, queued - (now - lastNs) * 48_000.0 / 1e9)
++        lastNs = now
++    }
++    override fun write(data: ShortArray, offset: Int, count: Int): Int {
++        if (count < 0 || count % 2 != 0) throw IllegalArgumentException("count=$count")
++        advance()
++        val frames = minOf(count / 2, (target - queued).toInt())
++        if (frames <= 0) return 0
++        queued += frames; written += frames
++        return frames * 2
++    }
++    override fun close() {}
++}
+--- /dev/null
++++ b/app/src/test/java/com/andrerinas/openheadunit/decoder/audio/AionLinkPcmOutputTest.kt
+@@ -0,0 +1,76 @@
++package com.andrerinas.openheadunit.decoder.audio
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class AionLinkPcmOutputTest {
++    @Test fun `write admits only up to the effective buffer like a nonblocking device`() {
++        val output = AionLinkPcmOutput()
++        assertEquals(960, output.setBufferFrames(10))
++        val pcm = ShortArray(2000 * 2) { 1 }
++        assertEquals(960 * 2, output.write(pcm, 0, pcm.size))
++        assertEquals(0, output.write(pcm, 0, pcm.size))
++        assertEquals(960L, output.writtenFrames)
++    }
++
++    @Test fun `drain mixes queued frames only while started and frees space`() {
++        val output = AionLinkPcmOutput()
++        output.setBufferFrames(960)
++        output.write(shortArrayOf(100, -100, 200, -200), 0, 4)
++        val mix = IntArray(8) { 5 }
++        output.drainInto(mix, 4)
++        assertArrayEquals(IntArray(8) { 5 }, mix) // paused: nothing consumed
++        output.start()
++        output.drainInto(mix, 4)
++        assertArrayEquals(intArrayOf(105, -95, 205, -195, 5, 5, 5, 5), mix)
++        assertEquals(2L, output.playedFrames())
++        assertEquals(1, output.underruns)
++    }
++
++    @Test fun `ring wraps without corrupting sample order`() {
++        val output = AionLinkPcmOutput()
++        output.setBufferFrames(9600)
++        output.start()
++        val block = ShortArray(9000 * 2)
++        assertEquals(block.size, output.write(block, 0, block.size))
++        output.drainInto(IntArray(9000 * 2), 9000)
++        val marked = ShortArray(1200 * 2) { it.toShort() }
++        assertEquals(marked.size, output.write(marked, 0, marked.size))
++        val mix = IntArray(1200 * 2)
++        output.drainInto(mix, 1200)
++        assertArrayEquals(IntArray(1200 * 2) { it }, mix)
++    }
++
++    @Test fun `a detached pipe reports a write error so the mixer reopens the phone output`() {
++        val output = AionLinkPcmOutput()
++        output.fail()
++        assertEquals(-6, output.write(ShortArray(4), 0, 4))
++    }
++
++    @Test fun `factory keeps the normal output when no AionLink client is attached`() {
++        assertFalse(AionLinkAudioSink.attached)
++        assertNull(AionLinkAudioSink.createOutput())
++    }
++
++    @Test fun `between client connections an AionLink Self Mode session discards instead of looping into Android Auto`() {
++        try {
++            val before = AionLinkAudioSink.generation
++            AionLinkAudioSink.noteSessionAnnouncement(true)
++            assertNotEquals("detached outputs must reroute", before, AionLinkAudioSink.generation)
++            assertEquals("Discard", AionLinkAudioSink.createOutput()?.name)
++            AionLinkAudioSink.noteSessionAnnouncement(false) // a new ordinary session
++            assertNull(AionLinkAudioSink.createOutput())
++        } finally { AionLinkAudioSink.noteSessionAnnouncement(false) }
++    }
++
++    @Test fun `discard output admits PCM only at the real 48 kHz rate`() {
++        var now = 0L
++        val output = DiscardPcmOutput { now }
++        output.setBufferFrames(960); output.start()
++        val pcm = ShortArray(4800 * 2)
++        assertEquals(960 * 2, output.write(pcm, 0, pcm.size))
++        assertEquals(0, output.write(pcm, 0, pcm.size))
++        now += 10_000_000 // 10 ms = 480 frames
++        assertEquals(480 * 2, output.write(pcm, 0, pcm.size))
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/andrerinas/openheadunit/decoder/audio/RoutedPcmOutputTest.kt
+@@ -0,0 +1,70 @@
++package com.andrerinas.openheadunit.decoder.audio
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class RoutedPcmOutputTest {
++    private class Fake(override val name: String) : PcmOutput {
++        var started = false; var closed = false; var frames = 0; var writes = 0
++        override val capacityFrames = 9600
++        override val bufferFrames get() = frames
++        override val burstFrames = 480
++        override val underruns = 0
++        override fun setBufferFrames(frames: Int): Int { this.frames = frames; return frames }
++        override fun start() { started = true }
++        override fun pause() { started = false }
++        override fun write(data: ShortArray, offset: Int, count: Int): Int { writes++; return count }
++        override fun close() { closed = true }
++    }
++
++    private var generation = 0
++    private var carAttached = false
++    private val made = ArrayList<Fake>()
++    private fun routed() = RoutedPcmOutput({ generation },
++        { if (carAttached) Fake("AionLink").also { made.add(it) } else null },
++        { Fake("Phone").also { made.add(it) } })
++
++    @Test fun `the same mixer output follows the car across disconnect and reconnect`() {
++        carAttached = true; generation = 1
++        val output = routed()
++        output.setBufferFrames(1920); output.start()
++        output.write(ShortArray(4), 0, 4)
++        assertEquals("AionLink", output.name)
++
++        carAttached = false; generation = 2 // car session ended
++        output.write(ShortArray(4), 0, 4)
++        assertEquals("Phone", output.name)
++        assertTrue(made[0].closed)
++
++        carAttached = true; generation = 3 // next car session, mixer reused
++        output.write(ShortArray(4), 0, 4)
++        assertEquals("AionLink", output.name)
++        assertTrue(made[1].closed)
++        assertTrue("new route keeps playback state", made[2].started)
++        assertEquals(1920, made[2].frames)
++        assertEquals(1, made[2].writes)
++    }
++
++    @Test fun `a route change advances the output epoch so the mixer resets frame accounting`() {
++        val output = routed()
++        val before = output.outputEpoch
++        carAttached = true; generation = 1
++        output.write(ShortArray(4), 0, 4)
++        assertNotEquals(before, output.outputEpoch)
++    }
++
++    @Test fun `no switch and no new output while the route is unchanged`() {
++        val output = routed()
++        repeat(5) { output.write(ShortArray(4), 0, 4) }
++        assertEquals(1, made.size)
++        assertEquals(5, made[0].writes)
++    }
++
++    @Test fun `a paused output switches without starting the new route`() {
++        val output = routed()
++        output.start(); output.pause()
++        carAttached = true; generation = 1
++        output.write(ShortArray(4), 0, 4)
++        assertFalse(made[1].started)
++    }
++}
