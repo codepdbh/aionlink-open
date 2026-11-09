@@ -1,5 +1,16 @@
 # Cambios
 
+## 0.41.0-research — 2026-11-08
+
+- Con Open Headunit como fuente, el sonido de Android Auto llega a AionLink por el puente (pipe PCM) y se envía al coche en AAC; ya no suena en el teléfono ni requiere captura de audio.
+- La prueba local informa los KiB recibidos por el puente, las tramas AAC y el pico.
+- Requiere Open Headunit con `patches/open-headunit/bridge-audio.patch`. Verificado solo en el teléfono, sin el AION.
+
+## 0.40.0-research — 2026-11-07
+
+- El audio capturado informa su nivel cada 5 s o si pasa a silencio, para saber si llega sonido de Open Headunit al coche.
+- Sin verificar con el AION; no instalada: falta la llave de firma compartida en este PC.
+
 ## 0.35.0-research — 2026-11-06
 
 - Modo coche: panel propio de AionLink (reloj, música con controles, navegación de Maps/Waze) enviado al coche sin captura de pantalla, para usar con el teléfono apagado.

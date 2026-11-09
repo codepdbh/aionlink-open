@@ -91,6 +91,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
     private var headunitDisplay: CarModeDisplay? = null
     private var headunitPreviewBridge: HeadunitSurfaceBridge? = null
+    private var headunitPreviewAudio: BridgeAudio? = null
     private val mutableHeadunitPreview = MutableStateFlow(false)
     val headunitPreview = mutableHeadunitPreview.asStateFlow()
 
@@ -101,7 +102,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     fun startHeadunitPreview(activity: android.content.Context) {
         if (headunitDisplay != null || projection.active) { event("Prueba local de Android Auto no iniciada: hay otra sesión activa"); return }
         val units = java.util.concurrent.atomic.AtomicLong()
-        val streamer = org.aionlink.projection.TsRtpStreamer({ })
+        val streamer = org.aionlink.projection.TsRtpStreamer({ }, audio = true)
+        val peak = java.util.concurrent.atomic.AtomicInteger(-1)
         try {
             val display = CarModeDisplay(getApplication(), 1920, 960, 30, org.aionlink.projection.WfdFormats.videoBitrate(1920, 960, 30),
                 onAccessUnit = { unit, pts, key -> units.incrementAndGet(); synchronized(streamer) { streamer.onAccessUnit(unit, pts, key) } },
@@ -113,7 +115,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             CarModeService.start(getApplication())
             val input = display.externalInputSurface() ?: error("Falta superficie de codificador")
             event("Prueba local Android Auto: puente de superficie sin pantalla virtual")
-            HeadunitSurfaceBridge(getApplication(), input) { result -> event("Prueba Android Auto: $result") }
+            val sound = try {
+                BridgeAudio({ frame, pts -> synchronized(streamer) { streamer.onAudioFrame(frame, pts) } },
+                    { error -> probeHandler.post { event("Prueba Android Auto: audio del puente detenido: $error") } },
+                    onLevel = { peak.set(it) }).also { headunitPreviewAudio = it; it.start() }
+            } catch (error: Exception) { event("Prueba Android Auto: audio del puente no iniciado: ${error.javaClass.simpleName}"); null }
+            HeadunitSurfaceBridge(getApplication(), input, sound) { result -> event("Prueba Android Auto: $result") }
                 .also { headunitPreviewBridge = it; it.start() }
             var last = 0L
             val tick = object : Runnable {
@@ -121,13 +128,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     if (headunitDisplay !== display) return
                     val now = units.get()
                     val power = getApplication<Application>().getSystemService(android.os.PowerManager::class.java)
-                    event("Prueba Android Auto: H264 en 5 s=${now - last}; total=$now; cuadros del relé=${display.relayedFrames}; datagramas=${streamer.datagramsSent}; pantalla interactiva=${power.isInteractive}")
+                    event("Prueba Android Auto: H264 en 5 s=${now - last}; total=$now; cuadros del relé=${display.relayedFrames}; datagramas=${streamer.datagramsSent}; pantalla interactiva=${power.isInteractive}; " +
+                        "audio puente=${(headunitPreviewAudio?.bytesReceived ?: 0) / 1024} KiB, AAC=${streamer.audioFrames}, pico=${peak.get()}%")
                     last = now
                     probeHandler.postDelayed(this, 5000)
                 }
             }
             probeHandler.postDelayed(tick, 5000)
         } catch (error: Exception) {
+            headunitPreviewAudio?.close(); headunitPreviewAudio = null
             headunitDisplay?.close(); headunitDisplay = null; mutableHeadunitPreview.value = false
             event("Prueba local de Android Auto falló: ${error.javaClass.simpleName}")
         }
@@ -135,6 +144,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun stopHeadunitPreview() {
         headunitPreviewBridge?.close(); headunitPreviewBridge = null
+        headunitPreviewAudio?.close(); headunitPreviewAudio = null
         headunitDisplay?.close()
         headunitDisplay = null
         if (mutableHeadunitPreview.value) { CarModeService.stop(getApplication()); event("Prueba local de Android Auto detenida") }
@@ -336,7 +346,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         network.startAuthExchange(pin, id.toByteArray(Charsets.US_ASCII), Build.MODEL)
     }
     fun export(): String = buildString {
-        appendLine("AionLink Open 0.39.0-research")
+        appendLine("AionLink Open 0.41.0-research")
         appendLine("Snapshot UTC: ${java.time.Instant.now()}; capturado antes del selector de archivos")
         appendLine("Android API ${Build.VERSION.SDK_INT}")
         appendLine("Estado: ${session.state.value}")
@@ -574,7 +584,7 @@ class MainActivity : ComponentActivity() {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.39.0")
+            Text("Cliente USB + Bluetooth experimental • v0.41.0")
             Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
             Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
             Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
