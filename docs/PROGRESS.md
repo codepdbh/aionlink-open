@@ -2232,7 +2232,7 @@ conexion/desconexion (AionLink, telefono o `DiscardPcmOutput`) sin consumir el
 presupuesto de recuperacion; entre conexiones de una sesion Self Mode anunciada
 para AionLink el PCM se descarta a ritmo real. Parche `bridge-audio.patch`
 regenerado, SHA-256
-`498a40800458318b1146598b5ef9aad7a646b493d0d8ecc8efd5d60eab415dca`, comprobado
+`df7192ed6b560a8fc96f4125870dd1b0492cbd33729cb34a8f16b2867f5c81c8`, comprobado
 con `git apply --check --reverse`. Pruebas: 4 795, 0 fallos, 1 omitida. APK
 32 932 135 bytes SHA-256
 `ba8be8cbba9171749a0edf165fcf53416b59097e49f6760390d933490114c688`
@@ -2249,3 +2249,13 @@ prueba abrieron el dialogo "Iniciar Android Auto automaticamente"; se cancelo
 sin cambios (seguia "Predeterminado"). Desde entonces cada toque se condiciona a
 la actividad en primer plano. Limitacion: entre conexiones, con la sesion Self
 Mode viva, la musica no suena en el telefono. Pendiente: verificacion en el AION.
+
+### Publicacion autorizada - 2026-11-08
+
+Por peticion del propietario se publicaron ramas, no main: `codepdbh/aionlink-open`
+rama `bridge-audio` (0.40 + 0.41, solo fuentes, CHANGELOG, PROGRESS y parche) y
+`codepdbh/open-headunit` rama `aionlink-bridge-audio`, commit `672f0913` sobre
+`d9522394`; el main del fork coincidia con el arbol local compilado. El parche se
+regenero desde ese commit (SHA-256 arriba) porque la version anterior tenia una
+linea en blanco final que impedia aplicarlo sobre el fork. Autor con la direccion
+noreply de GitHub. Sin APK, private/, extracted/ ni analysis/.
