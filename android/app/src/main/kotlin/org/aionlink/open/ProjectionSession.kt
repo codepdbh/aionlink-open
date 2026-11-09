@@ -64,6 +64,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     @Volatile private var carDisplay: CarModeDisplay? = null
     @Volatile private var headunitBridge: HeadunitSurfaceBridge? = null
     @Volatile private var audioCapture: AudioCapture? = null
+    @Volatile private var bridgeAudio: BridgeAudio? = null
     @Volatile private var datagrams: DatagramSocket? = null
     @Volatile private var localAddress: Inet4Address? = null
     @Volatile private var videoWidth = 0
@@ -207,7 +208,10 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         try {
             val local = localAddress ?: return
             val audioPermitted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            val withAudio = play.audioCodec == WfdFormats.AAC_48K_STEREO && audioPermitted && granted != null
+            // Open Headunit hands its decoded sound to AionLink through the bridge: no capture or permission needed,
+            // and the phone speaker stays silent. Other sources use playback capture when it was prepared.
+            val audioFromBridge = externalHeadunit && play.audioCodec == WfdFormats.AAC_48K_STEREO
+            val withAudio = play.audioCodec == WfdFormats.AAC_48K_STEREO && (audioFromBridge || (audioPermitted && granted != null))
             val send: (ByteArray) -> Unit = play.rtpTcp?.let { tcpSender(it) } ?: run {
                 val socket = DatagramSocket(null).apply { reuseAddress = true }
                 try { socket.bind(InetSocketAddress(local, WfdSource.RTP_SERVER_PORT)) }
@@ -221,6 +225,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
             }
             val streamer = TsRtpStreamer(send, audio = withAudio)
             val audioState = when {
+                audioFromBridge -> "AAC_PUENTE_OPEN_HEADUNIT"
                 withAudio -> "AAC"
                 play.audioCodec == null -> "RECEPTOR_SIN_AUDIO"
                 !audioPermitted -> "SIN_PERMISO_AUDIO"
@@ -255,7 +260,8 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                         }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit).also { car ->
                             carDisplay = car; car.start()
                             car.externalInputSurface()?.let { surface ->
-                                HeadunitSurfaceBridge(context, surface) { result -> event("Open Headunit: $result") }
+                                val sound = if (audioFromBridge) startBridgeAudio(streamer) else null
+                                HeadunitSurfaceBridge(context, surface, sound) { result -> event("Open Headunit: $result") }
                                     .also { bridge -> headunitBridge = bridge; bridge.start() }
                             }
                         }
@@ -265,10 +271,10 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 streamer.onAccessUnit(unit, ptsUs, key); report()
             }, onError = { error -> stopStream(error) }).also { encoder = it; it.start(context.resources.displayMetrics.densityDpi) }
             mutableStream.value = StreamStatus("STARTING", label, audio = audioState)
-            if (withAudio) try {
+            if (withAudio && !audioFromBridge) try {
                 AudioCapture(granted!!, { frame, ptsUs -> streamer.onAudioFrame(frame, ptsUs) }, { error ->
                     mutableStream.value = mutableStream.value.copy(audio = error); event("Audio detenido: $error")
-                }).also { audioCapture = it; it.start() }
+                }, onLevel = { level -> logAudioLevel(level) }).also { audioCapture = it; it.start() }
             } catch (error: Exception) { mutableStream.value = mutableStream.value.copy(audio = "START_${error.javaClass.simpleName}") }
             event("Vídeo iniciado hacia el receptor: $label; M4=${play.mode.width}x${play.mode.height}p${play.mode.fps}; " +
                 "pantalla del coche=${play.carDisplay?.let { "${it.width}x${it.height}@${it.fps}" } ?: "no informada"}; audio=$audioState; táctil=${play.uibc}")
@@ -292,10 +298,34 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         }
     }
 
+    private fun startBridgeAudio(streamer: TsRtpStreamer): BridgeAudio? = try {
+        BridgeAudio({ frame, ptsUs -> streamer.onAudioFrame(frame, ptsUs) }, { error ->
+            mutableStream.value = mutableStream.value.copy(audio = error); event("Audio del puente detenido: $error")
+        }, onLevel = { level -> logAudioLevel(level) }).also { bridgeAudio = it; it.start() }
+    } catch (error: Exception) {
+        mutableStream.value = mutableStream.value.copy(audio = "PUENTE_${error.javaClass.simpleName}"); null
+    }
+
+    private var audioLevelsLogged = 0
+    private var silentReports = 0
+
+    /** Logs the first reports and any change between silence and sound, so a long session stays readable. */
+    private fun logAudioLevel(level: Int) {
+        val silent = level == 0
+        val changed = silent != (silentReports > 0)
+        silentReports = if (silent) silentReports + 1 else 0
+        if (audioLevelsLogged < 6 || changed) {
+            audioLevelsLogged++
+            event(if (silent) "Audio capturado: silencio (nada capturable sonando)" else "Audio capturado: pico=$level%")
+        }
+    }
+
     private fun stopStream(reason: String) {
         main.post { TouchInjectionService.instance?.hideCarButtons() }
         savings.onStreamStopped()
         audioCapture?.close(); audioCapture = null
+        bridgeAudio?.close(); bridgeAudio = null
+        audioLevelsLogged = 0; silentReports = 0
         encoder?.close(); encoder = null
         carDisplay?.let { car ->
             carDisplay = null

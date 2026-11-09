@@ -1972,3 +1972,290 @@ datagramas). Repeticion del codificador desactivada en modo rele. Build/lint
 0 errores/33 avisos; JVM y Python correctos. APK Sonda 0.39 SHA-256
 `055b39203e30dde3c476fd49940e082461636c2d6fe8c30b209a08587a8a62e4`.
 Prueba en el AION pendiente.
+
+## 0.40 - Medidor de audio en modo coche - 2026-11-07
+
+El propietario informa de que todo funciona con 0.39, salvo el audio, que sale por el telefono.
+Diagnosticos copiados por ADB a private/vehicle-tests-2026-11-06/: aionlink-diagnostics6.txt,
+10 644 bytes, SHA-256 `53dfd2f3b6a8f60cdc0faf583b59d5a31720af1947777aac7ba757a9e156ab00`, y
+aionlink-diagnostics7.txt, 20 586 bytes, SHA-256
+`a7a4c8c6432518c426cc22433a5f0e1cac3db22f9372648d11ab4cc6e1420c06`; ambos de 0.34, sin la
+prueba de 0.39. En modo coche el audio solo se captura con permiso de captura; si no, queda
+POR_BLUETOOTH_DEL_COCHE, y el coche suelta el Bluetooth del telefono al usar CarLink.
+Hipotesis sin verificar: no se preparo el audio por AionLink, o la captura no recoge Open Headunit.
+
+0.40 registra el pico del audio capturado. Build -PaionlinkLab correcto, 6 Python y 111 JVM (91 + 20),
+lint 0 errores/33 avisos. APK 25 123 633 bytes, SHA-256
+`1887d6534e6894151d402008c5bbef83ab75ce93f7298a7c3d2b7fc8747b985d`. No instalada:
+INSTALL_FAILED_UPDATE_INCOMPATIBLE, la Sonda instalada usa la llave compartida y este PC no tiene
+keystore.properties. Sin commit.
+
+## 2026-11-07 - recompilacion local y cambio de firma solicitado
+
+El propietario solicita desinstalar Open Headunit del S25 y compilar e instalar
+la fuente descargada en `open-headunit-main/` con la firma de este PC. Tras
+comprobar la diferencia de certificados, autoriza tambien reemplazar AionLink
+Sonda para conservar el requisito de firma del puente. Se informa de la perdida
+de ajustes y permisos al desinstalar. No se cambian fuentes de las aplicaciones.
+
+Procedencia: descarga local sin `.git`; Gradle informa `GIT_SHA=unknown`, por
+lo que no se atribuye un commit upstream. SHA-256 del manifiesto de Open Headunit:
+`c5cc73b8228b7698b9727b81dc456fbd903b9226ea0ac5326ce70f16cc70cf3c`;
+del servicio AionLinkSurfaceService.kt:
+`14a5f5474f071a8b1a055b4bb115102974c41163ed70691373f00714f56833b5`.
+Los APK instalados antes del cambio se conservan solo en
+`private/open-headunit-replace-2026-11-07/`, sin extraer datos de usuario ni claves.
+Open Headunit anterior SHA-256
+`6732cfc1748f82f76bfc551a6c02d0dc15e68d44a412627e0995254a800911f8`;
+Sonda anterior (0.39) SHA-256
+`055b39203e30dde3c476fd49940e082461636c2d6fe8c30b209a08587a8a62e4`.
+Ambas usaban certificado SHA-256
+`53f31cba4e09e3d22206639f9705f78bc8aa887f649e465d3590fe70db12b4cf`.
+Certificado debug de este PC, comprobado mediante informacion publica y firma APK:
+`e1092cde24dac3e15ebb0cafb70378157de13d5c8dfc696b12f4fed0479fc573`.
+
+Validacion AionLink: seis pruebas Python correctas; Gradle con `-PaionlinkLab`,
+pruebas JVM de los cinco modulos (111 casos sin fallos en sus informes),
+assembleDebug y lintDebug correctos, con tareas reutilizadas UP-TO-DATE;
+lint 0 errores/33 avisos. APK Sonda 0.40, SHA-256
+`1887d6534e6894151d402008c5bbef83ab75ce93f7298a7c3d2b7fc8747b985d`,
+firma v2 verificada. Log `artifacts/reports/aionlink-pc-2026-11-07.log`.
+
+Open Headunit: `:app:testGithubDebugUnitTest :app:assembleGithubDebug` termino
+BUILD SUCCESSFUL en 10 min 11 s; 4 783 pruebas, 0 fallos, 0 errores y 1 omitida,
+en 515 informes XML. APK githubDebug 4.0.0-beta2, versionCode 122,
+28 813 957 bytes, SHA-256
+`96a4813bdf8127527ad52e0ca618e33cc791e19113887e9121e78827e057fe78`.
+Firmas v1/v2 verificadas con el certificado de este PC. La inspeccion estatica
+confirma servicio y permiso de firma AIONLINK_SURFACE. Log
+`artifacts/reports/open-headunit-pc-2026-11-07.log`; firmas y manifiesto en
+informes del mismo prefijo. La preparacion instalo NDK 29.0.14206865, CMake
+3.22.1 y plataforma SDK 34 adicional, exigidos por esta fuente. Avisos observados:
+SDK XML 3/4, opcion experimental del NDK, DSL targetSdk obsoleto, Java 8 y
+numerosos errores de reescritura de metadatos Kotlin emitidos como WARNING por
+D8; no se ocultaron ni impidieron terminar el build. El primer
+`git status` fallo por tratarse de una descarga sin repositorio Git; no se
+inicializa ni publica un repositorio. Un recuento inicial incluyo informes
+Release antiguos; se corrigio a los informes de las tareas solicitadas (111).
+
+Instalacion autorizada completada: tras comprobar modelo SM-S938B y ausencia de
+pantalla AionLink activa, ambas desinstalaciones y ambas instalaciones devolvieron
+Success. Android confirma Open Headunit 122/4.0.0-beta2 y Sonda 40/0.40.0-research.
+Se recupero cada base.apk instalado y su SHA-256 coincide con la APK compilada.
+Android declara AIONLINK_SURFACE `granted=true` para Sonda: comprobacion del
+permiso, no prueba de intercambio Binder o proyeccion. Ajustes y permisos locales
+se eliminan por la desinstalacion; no se intento restaurar datos. Es necesario
+configurar las aplicaciones y habilitar de nuevo los permisos que se necesiten.
+APK finales conservadas en `artifacts/builds/open-headunit-pc-2026-11-07.apk` y
+`artifacts/builds/aionlink-sonda-pc-2026-11-07.apk`. Registros de instalacion y
+estado de paquetes en artifacts/reports; copias anteriores y posteriores en private/.
+
+Herramientas: Python 3.14.3, JBR 21.0.10, Gradle 8.13/8.14.4,
+AGP 8.9.1/8.13.2, Kotlin 2.1.20/2.4.20, ADB 37.0.0 y Build Tools 36.0.0
+para verificar firmas. No se ejecuto Open Headunit ni se inicio una prueba de
+vehiculo o instrumentacion en el telefono; el escritorio no se manipulo.
+Pendiente: configuracion tras reinstalar y verificacion funcional del puente,
+imagen, audio, tactil y pantalla apagada con estas APK. Los resultados previos
+de otras compilaciones no verifican automaticamente esta descarga. Sin publicacion.
+
+### Prueba de 0.40 en el AION - 2026-11-07
+
+Diagnostico `aionlink-diagnostics7 (1).txt`, 10 065 bytes, SHA-256
+`849450502ecc47dc925a9b1d01904092ba0b897e5ddea5947e810bd86a64c3a2`, copiado a
+private/vehicle-tests-2026-11-07/. Hardware: AUTH, CONTROL y RTSP hasta PLAYING; fuente Open
+Headunit, superficie aceptada, 0 unidades de video; el coche cierra a los 10 s sin video. Sin
+cierre de AionLink en el buffer crash. Audio POR_BLUETOOTH_DEL_COCHE (sin preparar). Tras la
+reinstalacion por el propietario de ambas apps con la llave de este PC, Open Headunit no entrego
+video; su configuracion no la hace este agente. Medidor de audio sin datos.
+
+### Configuracion de Open Headunit por pantalla del S25 - 2026-11-07
+
+El propietario solicita expresamente manejar la pantalla del celular y configurar
+Open Headunit. Se abre la compilacion local instalada y se opera su interfaz con
+ADB 37.0.0, sin manipular ventanas ni entrada del escritorio Windows. No se
+ejecutan los APK propietarios de investigacion. Capturas solo locales en
+`private/phone-ui-2026-11-07/`; no se publican.
+
+Observacion de interfaz: modo autonomo ya seleccionado; resolucion 1080p,
+horizontal 0 grados, H.264, receptor de audio activado y salida AAudio desactivada.
+Se cambia el limite de 60 a 30 FPS para coincidir con la ruta de video de
+AionLink, y se pulsa Guardar; la interfaz confirma Configuracion guardada.
+Esto es un ajuste de carga, no una causa demostrada del fallo previo sin video.
+Android Auto instalado informa 17.9.664044-release. Su menu muestra Detener serv.
+unidad principal: el servidor ya estaba activo y no se reinicia ni detiene.
+Los ajustes de desarrollador de Android Auto ya estaban habilitados; no se
+cambian. Se deja Open Headunit en su pantalla de Iniciar Modo Autonomo.
+
+Incidencia: uiautomator dump inicial devuelve could not get idle state y no
+genera XML; la posterior lectura falla por ausencia del archivo. Se continua con
+capturas de pantalla y acciones basadas en la imagen observada. Una captura
+intermedia coincide con la animacion de rotacion; se actualiza antes de actuar.
+No se modifican fuentes Python o Android ni se repiten builds/tests de codigo.
+
+Pendiente: confirmar presencia del propietario y vehiculo estacionado, conforme
+a AGENTS.md, antes de iniciar la prueba de proyeccion. Aun no se pulsa Iniciar
+Modo Autonomo ni se conecta AionLink al coche; imagen, audio, tactil y puente
+de esta configuracion siguen sin verificar.
+
+### Prueba local del puente y pantalla apagada - 2026-11-07
+
+El propietario confirma presencia junto al S25 y solicita prueba local sin coche.
+Se usa el boton de prueba local de AionLink Sonda 0.40, en modo COCHE y fuente
+Android Auto/Open Headunit. La prueba entrega la superficie del rele al servicio
+firmado de Open Headunit y descarta los datagramas en memoria; no se contacta al
+vehiculo ni se verifica una sesion ICCOA. Se conservan las APK del apartado de
+compilacion local, sin modificaciones de codigo.
+
+Primer intento: superficie aceptada, handshake de Android Auto y configuracion
+del canal VIDEO STATUS_READY, pero 0 cuadros. El buffer crash del UID de Android
+Auto registra `IllegalStateException: Already connected` en su proceso
+`:projection`, dentro de DeveloperHeadUnitNetworkService. Open Headunit observa
+Connection reset. Se detiene la prueba local y se pulsa Detener/Iniciar servidor
+de unidad principal desde el menu normal de Android Auto, sin borrar datos.
+La repeticion genera video. El reinicio resolvio este intento; el origen del
+estado anterior y su relacion con la prueba del coche no estan demostrados.
+
+Segunda prueba: superficie aceptada y video codificado. En 17 muestras consecutivas
+con `pantalla interactiva=false`, separadas por 80,050 s, H.264 total sube de
+1 878 a 4 279 y el rele de 2 085 a 4 486: 2 401 cuadros, 29,994 FPS medios.
+Los contadores de datagramas suben de 40 969 a 76 175 en ese intervalo, solo en
+el sumidero local. Se comprueba la pantalla fisica `state OFF/committedState OFF`
+y el bloqueo `showing=true/inputRestricted=true` durante la prueba. El estado
+global PowerManager Awake incluye otros grupos de pantalla y no se utiliza por
+si solo como evidencia de pantalla fisica encendida. La pantalla se enciende en
+otros tramos; esos tramos se excluyen del intervalo de 80 s. Ultima muestra antes
+de detener: 5 392 unidades H.264, 5 681 cuadros del rele y 101 287 datagramas.
+
+Se pulsa Detener prueba local y se prueba aparte la interfaz visible de Open
+Headunit. Abrir la actividad tras retirar el puente deja un indicador de inicio;
+se cierra esa sesion con ACTION_STOP_SERVICE documentada y se inicia Modo Autonomo
+desde la pantalla principal. La captura confirma la interfaz real de Android Auto
+con mapa y panel multimedia. No se presupone que transferir una sesion entre
+superficies funcione sin reiniciarla. Al terminar se detiene Open Headunit con
+su accion documentada y se devuelve AionLink al primer plano, sin prueba local.
+
+Evidencia privada en `private/phone-ui-2026-11-07/`:
+- `local-test-final-log.txt`, SHA-256
+  `1bbcc9d4e570e49ade88788537e6a48dab2fc12dd3c630e0542c3b5ca3f7f5ee`.
+- `android-auto-crash.txt`, SHA-256
+  `789ea0e982b5470b0e7f3c63c511b973cdb7bf7f89b4e18634b8da1e1763777f`.
+- `local-test-summary.json`, SHA-256
+  `ceefcede6794ba32612f9a0003ec3c0bbe874af3e56a0af90ebbc7333f530bda`.
+- Captura de interfaz visible `screen-test-18.png`, SHA-256
+  `0c01bced666016ee2ee1594d6f9b07776801b0603411e543b46c381969cc7c63`.
+
+Herramientas: ADB 37.0.0, Python 3.14.3, capturas screencap y consultas de estado
+Android; logcat limitado a las apps involucradas, sin vaciar buffers. Una consulta
+rg inicial uso una ruta incorrecta para AutomationReceiver y se corrigio con la
+ruta observada en el manifiesto. Sin cambios Python/Android, no se requieren nuevos
+builds o tests de codigo. Resultado: continuidad local de video con pantalla
+apagada medida para estas APK. Pendiente: recepcion e imagen real en el AION,
+audio hacia el coche, tactil y estabilidad prolongada. No se suben datos ni capturas.
+
+## 0.41 - Video restaurado y audio por el puente de Open Headunit - 2026-11-08
+
+Reporte del propietario: el S25 dejo de transmitir al coche. Diagnostico por ADB
+(1.0.41) en el telefono, sin coche: Android Auto se actualizo ese dia (08:04) de
+17.9 a 18.0.664264-release. Prueba local de AionLink Sonda 0.40: 0 cuadros. Log
+de Open Headunit: `ECONNREFUSED 127.0.0.1:5277`, `Headunit Server ... is NOT
+running`, `All launchers failed`. El menu de Android Auto ofrecia "Iniciar
+servidor unidad princ.": la actualizacion dejo apagado el servidor de unidad
+principal (opcion de desarrollador). Se inicio desde ese menu, sin borrar datos.
+Repeticion: ~26-30 cuadros/s; con pantalla fisica `DOZE_SUSPEND` e interactiva=false
+siguieron ~28 cuadros/s. Conclusion: el fallo no estaba en el codigo del puente.
+Tras cada actualizacion de Android Auto hay que volver a iniciar el servidor.
+Prueba local: no verifica la recepcion en el AION.
+
+Audio (el propietario pide que no salga por el telefono). Hallazgo en el log de
+Open Headunit: en Self Mode no anuncia los canales de musica y voz ("media and
+speech audio channels are skipped"), asi que Android Auto reproduce los medios en
+el altavoz del telefono; la captura de AionLink solo copiaba ese sonido.
+Cambios:
+- Open Headunit (`patches/open-headunit/bridge-audio.patch`, SHA-256
+  `d06a78c2c46878ba0c76de8144c164d4390b3482ccd20a97c87e0dfdec23ee98`; comprobado
+  con `git apply --check --reverse`): el mensaje ATTACH del puente acepta un pipe
+  opcional `audio`; `AionLinkAudioSink` sustituye la salida del mezclador por PCM
+  48 kHz estereo 16 bits en tiempo real (silencio incluido) hacia el pipe; al
+  desconectarse, la salida devuelve error y la recuperacion existente reabre el
+  altavoz. Con pipe conectado se anuncian musica y voz tambien en Self Mode. La
+  respuesta STATUS incluye `audio`. Sin AionLink el comportamiento no cambia.
+- AionLink 0.41: `AacPump` (codificador AAC extraido de AudioCapture, sin
+  cambio de comportamiento), `BridgeAudio` (pipe -> AAC), envio del pipe en
+  `HeadunitSurfaceBridge`; con fuente Open Headunit y receptor AAC el audio se
+  marca `AAC_PUENTE_OPEN_HEADUNIT` sin captura ni permiso de microfono. La prueba
+  local informa KiB del puente, tramas AAC y pico.
+
+Prueba local (sin coche): puente 187 KiB/s y ~47 tramas AAC/s; Samsung Music
+iniciada con tecla multimedia sale por `Remote Submix Out` (captura de Android
+Auto, puerto 1759), mezclador de Open Headunit con salida `AionLink`, xruns=0, y
+sin reproduccion propia de Open Headunit en el telefono; pico 72-76 %. Con pantalla
+`DOZE`/interactiva=false: video y audio continuan (pico 76 %). No verificado:
+sonido real en el coche, voz de navegacion, sincronia, llamadas y estabilidad.
+La musica de prueba se pauso al terminar. La prueba local quedo activa porque el
+telefono quedo bloqueado con PIN; debe detenerla el propietario.
+
+Validacion: AionLink `-PaionlinkLab` pruebas JVM de cinco modulos 0 fallos,
+assembleDebug y lint 0 errores/33 avisos (log
+`artifacts/reports/aionlink-0.41-bridge-audio.log`); APK 25 140 017 bytes SHA-256
+`250ede1b9217919cd435d4ab5b80cd139c67adb717d3bc77e7e25d8b00c6ca39`
+(`artifacts/builds/aionlink-sonda-0.41-bridge-audio.apk`). Python no se modifico.
+Open Headunit `:app:testGithubDebugUnitTest :app:assembleGithubDebug`: 4 789
+pruebas, 0 fallos, 1 omitida (8 nuevas); APK 33 021 870 bytes SHA-256
+`c134fba2621ddd51c6ac127e92514952cdef5f497b8bfbab00f22e087a27619e`
+(`artifacts/builds/open-headunit-bridge-audio-2026-11-08.apk`; un build intermedio
+sin el cambio de anuncio, `b2096e2f...`, se instalo y fue reemplazado). Logs
+`artifacts/reports/open-headunit-bridge-audio-2026-11-08*.log`. Ambas instaladas
+con `adb install -r` (Success), firma de este PC; Sonda 0.41 con AIONLINK_SURFACE
+granted=true. JBR 21, Gradle 8.13/8.14.4, Git 2.54.0. Evidencia privada en
+`private/phone-ui-2026-11-08/`: test1-log.txt
+`49cdc700b6181888258ccd527002d4d78f98a94bb3cbdb57e3bb6bd5f03f1413`, test4-log.txt
+`572d6f2bf2e0898e4e798e9413921537d8abcf712dc6b1a0df4ed5192e1634c3`,
+test4-off-log.txt `1498130186cf54bb70166d7b2787aa4cdaaab6af6b6cfa6eff6b3c08067cc4f3`.
+Incidencias: un primer `adb logcat -T` fallo por formato de fecha y se repitio con
+`-t`. Sin commit, sin publicacion y sin cambios en el fork remoto.
+
+### Audio solo en la primera conexion - 2026-11-08 (noche)
+
+El propietario informa que el audio llego al coche una vez y despues volvio a
+salir por el telefono. No hubo diagnostico exportado; logcat ya no cubria esas
+sesiones y el selector de archivos no acepto toques por ADB. Hallazgos:
+- El telefono se reinicio a las 11:18; el servidor de unidad principal de Android
+  Auto no sobrevive al reinicio (Open Headunit: `Headunit Server ... is NOT
+  running`). Se inicio de nuevo desde el menu. Se debe revisar tras cada reinicio.
+- Defecto propio de 0.41 (codigo): al desconectar AionLink la salida del mezclador
+  pasaba al AudioTrack mediante la recuperacion por error, y el mezclador
+  compartido se reutiliza entre conexiones, asi que al reconectar seguia en el
+  AudioTrack. Ademas, con la sesion Self Mode viva, ese AudioTrack era capturado
+  por Android Auto (Remote Submix): bucle.
+Correccion en Open Headunit: `RoutedPcmOutput` reevalua la ruta en cada
+conexion/desconexion (AionLink, telefono o `DiscardPcmOutput`) sin consumir el
+presupuesto de recuperacion; entre conexiones de una sesion Self Mode anunciada
+para AionLink el PCM se descarta a ritmo real. Parche `bridge-audio.patch`
+regenerado, SHA-256
+`df7192ed6b560a8fc96f4125870dd1b0492cbd33729cb34a8f16b2867f5c81c8`, comprobado
+con `git apply --check --reverse`. Pruebas: 4 795, 0 fallos, 1 omitida. APK
+32 932 135 bytes SHA-256
+`ba8be8cbba9171749a0edf165fcf53416b59097e49f6760390d933490114c688`
+(`artifacts/builds/open-headunit-routed-audio-2026-11-08.apk`), instalada
+(Success). AionLink no cambio.
+
+Prueba local (sin coche), conectar/desconectar/reconectar con Samsung Music:
+sesion 1 audio por el puente (pico 99 %); entre sesiones `AionLink -> Discard` y
+ninguna reproduccion de Open Headunit; sesion 2 `Discard -> AionLink`, pico
+95-97 %, video ~20-28 cuadros/s. Log privado
+`private/vehicle-tests-2026-11-08/cycle-log3.txt`. Incidencia: con el servidor
+apagado, Open Headunit abrio los ajustes de Android Auto y dos toques de la
+prueba abrieron el dialogo "Iniciar Android Auto automaticamente"; se cancelo
+sin cambios (seguia "Predeterminado"). Desde entonces cada toque se condiciona a
+la actividad en primer plano. Limitacion: entre conexiones, con la sesion Self
+Mode viva, la musica no suena en el telefono. Pendiente: verificacion en el AION.
+
+### Publicacion autorizada - 2026-11-08
+
+Por peticion del propietario se publicaron ramas, no main: `codepdbh/aionlink-open`
+rama `bridge-audio` (0.40 + 0.41, solo fuentes, CHANGELOG, PROGRESS y parche) y
+`codepdbh/open-headunit` rama `aionlink-bridge-audio`, commit `672f0913` sobre
+`d9522394`; el main del fork coincidia con el arbol local compilado. El parche se
+regenero desde ese commit (SHA-256 arriba) porque la version anterior tenia una
+linea en blanco final que impedia aplicarlo sobre el fork. Autor con la direccion
+noreply de GitHub. Sin APK, private/, extracted/ ni analysis/.
