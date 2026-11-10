@@ -1,0 +1,388 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 72e87ee2..907cfb98 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -125,6 +125,25 @@ android {
+             dimension = "distribution"
+             // Default minSdk 16 from defaultConfig is used
+         }
++        // Dedicated receiver for AionLink Sonda (car display through the AionLink surface bridge).
++        // Same code as github, but fixed settings, one simple screen and its own application id,
++        // so it installs next to the full app. See app/src/lite/README.md.
++        create("lite") {
++            dimension = "distribution"
++            applicationId = "org.aionlink.headunit.lite"
++            versionNameSuffix = "-lite"
++            ndk { abiFilters += "arm64-v8a" }
++            @Suppress("DEPRECATION")
++            resourceConfigurations += listOf("en", "es")
++        }
++    }
++
++    sourceSets {
++        // Lite keeps the github flavor's offline Self Mode support (dummy VPN) and adds its own files.
++        getByName("lite") {
++            java.srcDirs("src/github/java")
++            res.srcDirs("src/github/res")
++        }
+     }
+ 
+     testOptions {
+diff --git a/app/src/lite/AndroidManifest.xml b/app/src/lite/AndroidManifest.xml
+new file mode 100644
+index 00000000..1a6078d9
+--- /dev/null
++++ b/app/src/lite/AndroidManifest.xml
+@@ -0,0 +1,50 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++    OpenHeadunit Lite: only what AionLink Sonda uses (Self Mode, the AionLink surface bridge and the
++    automation broadcasts). The full app's entry points that would claim other system roles are
++    removed here; their code stays so the shared sources build unchanged.
++-->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools">
++    <!-- Status on the lite screen: is Android Auto / AionLink Sonda installed. -->
++    <queries>
++        <package android:name="com.google.android.projection.gearhead" />
++        <package android:name="org.aionlink.open.lab" />
++    </queries>
++
++    <application>
++        <activity
++            android:name=".lite.LiteActivity"
++            android:exported="true"
++            android:launchMode="singleTask"
++            android:theme="@style/AppTheme">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++            </intent-filter>
++        </activity>
++
++        <!-- Not a launcher, navigation app, deep-link target or home screen in this edition. -->
++        <activity android:name=".main.MainActivity" tools:node="merge" tools:ignore="IntentFilterExportedReceiver">
++            <intent-filter tools:node="removeAll" />
++            <meta-data android:name="android.app.shortcuts" tools:node="remove" />
++        </activity>
++        <activity-alias android:name=".CarLauncherAlias" tools:node="remove" />
++
++        <!-- No USB head unit connections: AionLink Sonda carries the picture to the car. -->
++        <activity android:name=".app.UsbAttachedActivity" tools:node="merge" tools:ignore="IntentFilterExportedReceiver">
++            <intent-filter tools:node="removeAll" />
++            <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" tools:node="remove" />
++        </activity>
++
++        <!-- Same as the github flavor: offline Self Mode gives Android Auto a network through it. -->
++        <service
++            android:name=".aap.DummyVpnService"
++            android:permission="android.permission.BIND_VPN_SERVICE"
++            android:exported="false">
++            <intent-filter>
++                <action android:name="android.net.VpnService" />
++            </intent-filter>
++        </service>
++    </application>
++</manifest>
+diff --git a/app/src/lite/README.md b/app/src/lite/README.md
+new file mode 100644
+index 00000000..14e54728
+--- /dev/null
++++ b/app/src/lite/README.md
+@@ -0,0 +1,27 @@
++# OpenHeadunit Lite (flavor `lite`)
++
++An edition of Open Headunit that does one job: be the Android Auto receiver for **AionLink Sonda**, which
++shows it on a GAC AION car display through the AionLink surface bridge (`AionLinkSurfaceService`, video,
++touch and sound).
++
++It installs next to the full app as `org.aionlink.headunit.lite`. AionLink Sonda uses it when it is
++installed and falls back to the full Open Headunit otherwise. Both apps must be signed with the same key as
++AionLink Sonda, because the bridge permission is `signature`.
++
++What differs from the `github` flavor; the shared code is unchanged:
++
++- **Fixed settings.** `LiteDefaults` writes them on every start: Self Mode only, 1080p, H.264, 30 FPS,
++  landscape, audio sink on, AudioTrack output, no auto-start, and the onboarding wizard marked done.
++- **One screen.** `LiteActivity` asks once for the safety notice and the permissions, shows status and can
++  stop a session. The full UI is not reachable from the launcher.
++- **No other system roles.** It is not a launcher, navigation app, deep-link target, home screen or USB
++  accessory handler.
++- **Smaller.** Only arm64-v8a native libraries and English/Spanish resources are included.
++
++Build: `./gradlew :app:assembleLiteDebug` (or `assembleLiteRelease` with a signing key).
++
++Android Auto still needs its developer setting **Start head unit server** turned on. Turn it on again after
++every Android Auto update and every phone restart.
++
++License: AGPL-3.0, like Open Headunit. The source of this edition is the `openheadunit-lite` branch of
++github.com/codepdbh/open-headunit.
+diff --git a/app/src/lite/java/com/andrerinas/openheadunit/lite/LiteActivity.kt b/app/src/lite/java/com/andrerinas/openheadunit/lite/LiteActivity.kt
+new file mode 100644
+index 00000000..51cd7bcd
+--- /dev/null
++++ b/app/src/lite/java/com/andrerinas/openheadunit/lite/LiteActivity.kt
+@@ -0,0 +1,123 @@
++package com.andrerinas.openheadunit.lite
++
++import android.app.Activity
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.graphics.Typeface
++import android.os.Bundle
++import androidx.core.text.HtmlCompat
++import android.view.View
++import android.widget.Button
++import android.widget.LinearLayout
++import android.widget.ScrollView
++import android.widget.TextView
++import androidx.core.app.ActivityCompat
++import androidx.core.content.ContextCompat
++import com.andrerinas.openheadunit.BuildConfig
++import com.andrerinas.openheadunit.R
++import com.andrerinas.openheadunit.aap.AapService
++import com.andrerinas.openheadunit.decoder.audio.AionLinkAudioSink
++import com.andrerinas.openheadunit.utils.AppPermissions
++import com.andrerinas.openheadunit.utils.Settings
++
++/**
++ * The only screen of the lite edition. There is nothing to configure ([LiteDefaults] fixes the settings):
++ * it asks once for the safety notice and the permissions, shows whether the pieces AionLink Sonda needs are
++ * present, and can stop a running session. Sessions are started by AionLink Sonda through the surface bridge.
++ */
++class LiteActivity : Activity() {
++    private lateinit var status: TextView
++    private lateinit var notice: View
++    private lateinit var permissions: Button
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val pad = (16 * resources.displayMetrics.density).toInt()
++        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
++        column.addView(TextView(this).apply {
++            setText(R.string.lite_title); textSize = 22f; setTypeface(typeface, Typeface.BOLD)
++        })
++        column.addView(TextView(this).apply { setText(R.string.lite_intro); setPadding(0, pad / 2, 0, pad) })
++
++        notice = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            addView(TextView(context).apply {
++                setText(R.string.disclaimer_header); textSize = 18f; setTypeface(typeface, Typeface.BOLD)
++            })
++            addView(TextView(context).apply {
++                text = HtmlCompat.fromHtml(getString(R.string.disclaimer_text), HtmlCompat.FROM_HTML_MODE_COMPACT)
++            })
++            addView(Button(context).apply {
++                setText(R.string.disclaimer_accept)
++                setOnClickListener { Settings(this@LiteActivity).hasAcceptedDisclaimer = true; refresh() }
++            })
++        }
++        column.addView(notice)
++
++        permissions = Button(this).apply {
++            setText(R.string.lite_grant_permissions)
++            setOnClickListener {
++                val missing = AppPermissions.missingNormalPermissions(this@LiteActivity)
++                if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this@LiteActivity, missing.toTypedArray(), 1)
++            }
++        }
++        column.addView(permissions)
++        column.addView(Button(this).apply {
++            setText(R.string.lite_open_android_auto)
++            setOnClickListener {
++                // Android Auto's own settings hold "Start head unit server"; many phones show no launcher icon for it.
++                val settings = Intent().setClassName(ANDROID_AUTO, "$ANDROID_AUTO.companion.settings.DefaultSettingsActivity")
++                val intent = if (settings.resolveActivity(packageManager) != null) settings
++                    else packageManager.getLaunchIntentForPackage(ANDROID_AUTO)
++                try { intent?.let { startActivity(it) } } catch (_: RuntimeException) { }
++            }
++        })
++        column.addView(Button(this).apply {
++            setText(R.string.lite_stop)
++            setOnClickListener {
++                startService(Intent(this@LiteActivity, AapService::class.java).setAction(AapService.ACTION_STOP_SERVICE))
++                refresh()
++            }
++        })
++        status = TextView(this).apply { setPadding(0, pad, 0, 0); setTextIsSelectable(true) }
++        column.addView(status)
++        column.addView(TextView(this).apply {
++            text = getString(R.string.lite_license, BuildConfig.VERSION_NAME, BuildConfig.GIT_SHA)
++            textSize = 12f; setPadding(0, pad, 0, 0)
++        })
++        // Keeps the title clear of the status bar now that apps draw edge to edge.
++        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(column) })
++    }
++
++    override fun onResume() { super.onResume(); refresh() }
++
++    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
++        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
++        refresh()
++    }
++
++    private fun refresh() {
++        val accepted = Settings(this).hasAcceptedDisclaimer
++        notice.visibility = if (accepted) View.GONE else View.VISIBLE
++        val missing = AppPermissions.missingNormalPermissions(this)
++        permissions.visibility = if (missing.isEmpty()) View.GONE else View.VISIBLE
++        fun yes(value: Boolean) = getString(if (value) R.string.lite_yes else R.string.lite_no)
++        status.text = getString(
++            R.string.lite_status,
++            yes(accepted),
++            if (missing.isEmpty()) getString(R.string.lite_yes) else missing.joinToString { it.substringAfterLast('.') },
++            yes(installed(ANDROID_AUTO)),
++            yes(installed(AIONLINK_SONDA)),
++            yes(AionLinkAudioSink.attached),
++        )
++    }
++
++    private fun installed(name: String) = try {
++        packageManager.getPackageInfo(name, 0); true
++    } catch (_: PackageManager.NameNotFoundException) { false }
++
++    private companion object {
++        const val ANDROID_AUTO = "com.google.android.projection.gearhead"
++        const val AIONLINK_SONDA = "org.aionlink.open.lab"
++    }
++}
+diff --git a/app/src/lite/res/values-es/strings.xml b/app/src/lite/res/values-es/strings.xml
+new file mode 100644
+index 00000000..44beb681
+--- /dev/null
++++ b/app/src/lite/res/values-es/strings.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="app_name">OpenHeadunit Lite</string>
++    <string name="title">OpenHeadunit Lite</string>
++    <string name="lite_title">OpenHeadunit Lite para AionLink Sonda</string>
++    <string name="lite_intro">No hay nada que configurar. AionLink Sonda inicia Android Auto aquí y lo muestra en la pantalla del coche por su puente de superficie, con sonido. En los ajustes de desarrollador de Android Auto debe estar activo \"Iniciar servidor de unidad principal\" (de nuevo tras cada actualización de Android Auto o reinicio del teléfono).</string>
++    <string name="lite_grant_permissions">Conceder permisos</string>
++    <string name="lite_open_android_auto">Abrir Android Auto</string>
++    <string name="lite_stop">Detener sesión</string>
++    <string name="lite_yes">sí</string>
++    <string name="lite_no">no</string>
++    <string name="lite_status">Aviso de seguridad aceptado: %1$s\nPermisos: %2$s\nAndroid Auto instalado: %3$s\nAionLink Sonda instalada: %4$s\nSonido yendo a AionLink ahora: %5$s</string>
++    <string name="lite_license">Versión %1$s (%2$s). Basada en Open Headunit, AGPL-3.0; código de esta edición: github.com/codepdbh/open-headunit, rama openheadunit-lite.</string>
++</resources>
+diff --git a/app/src/lite/res/values/strings.xml b/app/src/lite/res/values/strings.xml
+new file mode 100644
+index 00000000..f7a0e956
+--- /dev/null
++++ b/app/src/lite/res/values/strings.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="app_name">OpenHeadunit Lite</string>
++    <string name="title">OpenHeadunit Lite</string>
++    <string name="lite_title">OpenHeadunit Lite for AionLink Sonda</string>
++    <string name="lite_intro">Nothing to configure. AionLink Sonda starts Android Auto here and shows it on the car display through its surface bridge, sound included. Android Auto\'s developer settings must have \"Start head unit server\" on (again after each Android Auto update or phone restart).</string>
++    <string name="lite_grant_permissions">Grant permissions</string>
++    <string name="lite_open_android_auto">Open Android Auto</string>
++    <string name="lite_stop">Stop session</string>
++    <string name="lite_yes">yes</string>
++    <string name="lite_no">no</string>
++    <string name="lite_status">Safety notice accepted: %1$s\nPermissions: %2$s\nAndroid Auto installed: %3$s\nAionLink Sonda installed: %4$s\nSound going to AionLink now: %5$s</string>
++    <string name="lite_license">Version %1$s (%2$s). Based on Open Headunit, AGPL-3.0; source of this edition: github.com/codepdbh/open-headunit, branch openheadunit-lite.</string>
++</resources>
+diff --git a/app/src/main/java/com/andrerinas/openheadunit/App.kt b/app/src/main/java/com/andrerinas/openheadunit/App.kt
+index 6f90f77a..0a6b333d 100644
+--- a/app/src/main/java/com/andrerinas/openheadunit/App.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/App.kt
+@@ -144,6 +144,8 @@ class App : Application(), Application.ActivityLifecycleCallbacks {
+         if (Build.VERSION.SDK_INT >= 26)
+             com.andrerinas.openheadunit.connection.wifi.scan.WifiScanControl.initialize(this)
+ 
++        // Lite edition: fixed settings before anything reads them (no-op in the other flavors).
++        com.andrerinas.openheadunit.lite.LiteDefaults.apply(this)
+         val settings = Settings(this) // Create a Settings instance
+         AppLog.init(settings, this) // Initialize AppLog with settings for conditional logging
+ 
+diff --git a/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt b/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
+index 4b523c1d..dd8f058b 100644
+--- a/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
++++ b/app/src/main/java/com/andrerinas/openheadunit/aap/AionLinkSurfaceService.kt
+@@ -15,6 +15,7 @@ import com.andrerinas.openheadunit.App
+ import com.andrerinas.openheadunit.aap.protocol.messages.TouchEvent
+ import com.andrerinas.openheadunit.connection.CommManager
+ import com.andrerinas.openheadunit.decoder.audio.AionLinkAudioSink
++import com.andrerinas.openheadunit.decoder.video.WarmRelaunchKeyframePolicy
+ import com.andrerinas.openheadunit.utils.HeadUnitScreenConfig
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+@@ -117,16 +118,27 @@ class AionLinkSurfaceService : Service() {
+         surface = null
+     }
+ 
++    /**
++     * A fresh session starts its stream once focus is gained. A client that attaches to a session already
++     * projecting (AionLink reconnecting) gets no keyframe from a plain gain, because Android Auto already
++     * holds focus: measured 2026-11-10, the picture stayed black until the transport's own escalation cycled
++     * focus about 60 s later. So the retries, which only run while nothing has rendered on this surface,
++     * do a full release/regain cycle, the same one the warm relaunch path uses.
++     */
+     private fun requestVideoFocus() {
+         val generation = ++focusGeneration
+         val component = App.provide(this)
+         val handler = Handler(Looper.getMainLooper())
+-        for (delay in longArrayOf(0, 1000, 3000)) {
++        fun current() = active && generation == focusGeneration &&
++            component.commManager.connectionState.value is CommManager.ConnectionState.TransportStarted
++        handler.post { if (current()) component.commManager.retakeVideoFocusForKeyframe() }
++        for (delay in longArrayOf(1000, 3000)) {
+             handler.postDelayed({
+-                if (active && generation == focusGeneration &&
+-                    component.commManager.connectionState.value is CommManager.ConnectionState.TransportStarted &&
+-                    (delay == 0L || component.videoDecoder.lastFrameRenderedMs == 0L)) {
+-                    component.commManager.retakeVideoFocusForKeyframe()
++                if (current() && component.videoDecoder.lastFrameRenderedMs == 0L) {
++                    val cycle = component.commManager.releaseVideoFocusForKeyframe() ?: return@postDelayed
++                    handler.postDelayed({
++                        if (!component.commManager.retakeVideoFocusForKeyframe(cycle)) cycle.transport.endFocusCycle()
++                    }, WarmRelaunchKeyframePolicy.FOCUS_CYCLE_GAP_MS)
+                 }
+             }, delay)
+         }
+diff --git a/app/src/main/java/com/andrerinas/openheadunit/lite/LiteDefaults.kt b/app/src/main/java/com/andrerinas/openheadunit/lite/LiteDefaults.kt
+new file mode 100644
+index 00000000..9faba1ef
+--- /dev/null
++++ b/app/src/main/java/com/andrerinas/openheadunit/lite/LiteDefaults.kt
+@@ -0,0 +1,36 @@
++package com.andrerinas.openheadunit.lite
++
++import android.content.Context
++import androidx.core.content.edit
++import com.andrerinas.openheadunit.BuildConfig
++import com.andrerinas.openheadunit.main.OnboardingActivity
++import com.andrerinas.openheadunit.utils.Settings
++
++/**
++ * Fixed settings of the lite edition (flavor "lite"), written on every start so nothing needs configuring.
++ * They are the values verified with AionLink Sonda on 2026-11-07/08: Self Mode only, 1080p, H.264, 30 FPS
++ * (AionLink's encoder rate), landscape, audio sink on and the AudioTrack backend. AionLink scales the picture
++ * to the car's 1920x960. The safety notice is not accepted here: [LiteActivity] asks the user.
++ */
++object LiteDefaults {
++    val enabled: Boolean get() = BuildConfig.FLAVOR == "lite"
++
++    fun apply(context: Context) {
++        if (!enabled) return
++        context.getSharedPreferences(Settings.PREFS_NAME, Context.MODE_PRIVATE).edit {
++            putStringSet("connection-modes", setOf(Settings.ConnectionMode.SELF.key))
++            putInt("resolutionId", Settings.Resolution._1920x1080.id)
++            putString("video-codec", "H.264")
++            putInt("fps-limit", 30)
++            putInt(Settings.KEY_SCREEN_ORIENTATION, Settings.ScreenOrientation.LANDSCAPE.value)
++            putInt("view-mode", 1)
++            putString("display-size-preset", "LARGE_11_PLUS")
++            putBoolean("enable-audio-sink", true)
++            putBoolean("use-aaudio-output", false)
++            putBoolean("auto-start-self-mode", false)
++            putBoolean("has-completed-setup-wizard", true)
++            putInt("onboarding-version", OnboardingActivity.CURRENT_ONBOARDING_VERSION)
++            putBoolean("pending-renderer-confirm", false)
++        }
++    }
++}

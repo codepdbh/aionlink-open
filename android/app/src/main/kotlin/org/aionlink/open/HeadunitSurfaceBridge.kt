@@ -60,7 +60,7 @@ class HeadunitSurfaceBridge(
     }
 
     fun start() {
-        val intent = Intent().setComponent(ComponentName(OpenHeadunit.PACKAGE,
+        val intent = Intent().setComponent(ComponentName(OpenHeadunit.packageName(context),
             "com.andrerinas.openheadunit.aap.AionLinkSurfaceService"))
         try {
             bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)

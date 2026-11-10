@@ -2259,3 +2259,136 @@ rama `bridge-audio` (0.40 + 0.41, solo fuentes, CHANGELOG, PROGRESS y parche) y
 regenero desde ese commit (SHA-256 arriba) porque la version anterior tenia una
 linea en blanco final que impedia aplicarlo sobre el fork. Autor con la direccion
 noreply de GitHub. Sin APK, private/, extracted/ ni analysis/.
+
+### Cierre nativo en el hilo de audio del puente - 2026-11-10
+
+Revision de logs del S25 (logcat -b crash) antes de reinstalar. Unico cierre de
+las apps: `2026-11-09 21:24:56 -0400`, Sonda 0.41 (`org.aionlink.open.lab`, pid
+8358), `SIGSEGV SEGV_MAPERR` de escritura en el hilo `AionLink-audio-in`. Pila:
+`__memmove_aarch64_nt` <- `DirectByteBuffer.put` <- `BridgeAudio.read` <-
+`AacPump.feed`. El destino era el inicio de una pagina ya desmapeada: copia a un
+buffer de entrada del codec AAC liberado.
+
+Causa (analisis estatico, coincide con la pila): `AacPump.close()` hacia
+`stop()/release()` del MediaCodec mientras `feed` seguia bloqueado leyendo la
+tuberia con el buffer del codec en la mano; cuando Open Headunit escribia el
+siguiente bloque, `put` copiaba sobre memoria liberada. `drain` tenia la misma
+carrera con `getOutputBuffer().get()`. La captura normal (`AudioCapture`)
+compartia el defecto con menor probabilidad porque `AudioRecord.read` regresa
+pronto.
+
+Arreglo: `AacPump` recibe ahora los datos en un `ByteArray` propio (nunca memoria
+del codec); solo la bomba copia a los buffers del codec, dentro de un candado que
+`close()` toma para poner `running = false` y soltar el codec antes de liberarlo.
+`drain` copia y devuelve el buffer de salida bajo el mismo candado. Ninguna
+copia nativa puede ocurrir tras el `release()`. Del lado del fork
+(`AionLinkAudioSink`, `672f0913`) no se vio un defecto equivalente: escribe a la
+tuberia fuera del candado y el cierre termina con IOException.
+
+Verificacion: `testDebugUnitTest`, `:app:assembleDebug` y `:app:lintDebug` (lab)
+correctos con JBR de Android Studio. `lintDebug` de todo el proyecto falla por un
+error previo y ajeno: `transport-usb/UsbAccessoryClient.kt:156` usa
+`Os.fcntlInt` (API 30, minSdk 29), desde `ee8f6e4`. APK de laboratorio de este PC
+SHA-256 `d841f56e790d8db57316af6a7598aafb255d82eb7a5aacf7e883c475bc4c6884`, firma
+`53f31cba...`; no instalado: las apps del telefono estan firmadas con `fb798501`
+(certificado `e1092cde...`, clave del otro PC) y no hay keystore.properties aqui.
+Pendiente: reproducir conectar/desconectar repetido sin cierre y la prueba en el
+coche.
+
+## OpenHeadunit Lite para AionLink Sonda - 2026-11-10
+
+Solicitud del propietario: una edicion de Open Headunit sin configuracion y solo
+con lo necesario para el coche, dedicada a AionLink Sonda. Opciones elegidas por
+el propietario: "lite por configuracion" (no se borra codigo compartido) y paquete
+nuevo que convive con el Open Headunit completo.
+
+Fork local `open-headunit-main`, rama nueva `openheadunit-lite` sobre `3e9c10ab`,
+sin commit. Parche `patches/open-headunit/openheadunit-lite.patch`, SHA-256
+`d69007e06fd53629a86e2ce2c015d63a90b376feec124cfedbc8b0c0a02f2a82` (8 archivos,
++280); `git apply --check` correcto sobre un worktree limpio de `3e9c10ab`.
+
+- Flavor `lite`: `applicationId org.aionlink.headunit.lite`, nombre OpenHeadunit
+  Lite, solo `arm64-v8a`, recursos `en`/`es`; reutiliza las fuentes del flavor
+  `github` (VPN ficticia del modo autonomo sin red).
+- `LiteDefaults` escribe en cada arranque los ajustes con los que funciono el
+  puente (leidos en solo lectura de `shared_prefs/settings.xml` del Open Headunit
+  instalado, sin copiar identificadores Wi-Fi Direct, ubicacion ni MAC): solo modo
+  autonomo, 1080p, H.264, 30 FPS, horizontal, receptor de audio activo, salida
+  AudioTrack, sin autoarranque, asistente marcado como hecho. No en otros flavors.
+- `LiteActivity` es la unica pantalla: aviso de seguridad (lo acepta el usuario,
+  no se acepta por codigo), permisos, estado y detener sesion.
+- Manifiesto: se quitan los filtros de MainActivity (lanzador, navegacion, enlaces),
+  el alias de pantalla de inicio y el manejador USB. Verificado con `aapt2 dump`:
+  unico lanzador LiteActivity; AutomationReceiver y AionLinkSurfaceService intactos.
+
+AionLink: `OpenHeadunit.packageName()` prefiere `org.aionlink.headunit.lite` si esta
+instalado y si no usa `com.andrerinas.headunitrevived`; `<queries>` ampliado; el
+diagnostico muestra el receptor en uso.
+
+Verificacion: lite `testLiteDebugUnitTest` 4 795 pruebas correctas tras quitar un
+`minSdk 29` inicial (22 pruebas Robolectric con SDK 23/28 fallaban con "Requires
+newer sdk version #29"; esas clases pasan en `github`). `lintLiteDebug` sin avisos en
+archivos lite (2 falsos positivos IntentFilterExportedReceiver por los elementos de
+eliminacion, ignorados alli). Tamano release sin firmar: lite 18,8 MB (contenido
+sin comprimir 18,8 MB) frente a github 20,9 MB (37,6 MB). APK lite debug SHA-256
+`93360b8eb51bbe110c7270c3807a65ad187c262ab528d055b4580f8246577914`. AionLink lab:
+tests, assembleDebug y lint de app correctos. Nada instalado: la firma de este PC
+(`53f31cba...`) no coincide con Sonda instalada (`fb798501`), y el puente exige la
+misma firma en ambas apps. Pendiente: prueba en el coche (ver instalacion y prueba local abajo).
+
+### Instalacion y prueba local de Lite + Sonda - 2026-11-10
+
+Autorizacion del propietario: "desinstala los anteriores e instala estos nuevos y
+haz las pruebas", con el propietario junto al S25 y sin coche. Antes se copiaron
+en solo lectura los `shared_prefs` de Sonda y de Open Headunit a
+`private/backup-before-reinstall-2026-11-10/` (excluido de Git). Se desinstalaron
+`org.aionlink.open.lab` y `com.andrerinas.headunitrevived`; `org.aionlink.open`
+0.28 no se toco. Se instalaron Sonda (APK `d841f56e...`, recompilado despues con el
+cambio de paquete Lite) y Lite, ambos con la firma de este PC (`53f31cba...`). Se
+restauraron en Sonda `aionlink_video`, `aionlink_savings` y `own-client` (el id que
+conoce el coche), con comparacion byte a byte. El propietario acepto el aviso de
+Lite, concedio permisos y reactivo accesibilidad y acceso a notificaciones de Sonda.
+Sonda sigue sin BLUETOOTH_CONNECT/SCAN, NEARBY_WIFI_DEVICES ni RECORD_AUDIO
+concedidos: no los usa el puente local, si la conexion al coche.
+
+Incidencia 1: el primer intento recibio `peer_silent`; el servidor de unidad
+principal de Android Auto 18.0.664264 aceptaba y no respondia (estado anterior a
+la reinstalacion). Siguiendo el mensaje de Open Headunit se forzo la detencion de
+Android Auto y se pulso Iniciar servidor unidad princ. en su menu; puerto 5277 de
+nuevo en escucha. Se ejecuto `adb logcat -c`, que vacio los buferes; el cierre
+nativo del 2026-11-09 ya estaba documentado arriba.
+
+Resultado con Lite: superficie y audio aceptados, sesion `projecting`. Pantalla
+encendida: H.264 24-28 unidades/s, rele 30 cuadros/s, AAC ~47 tramas/s (48 kHz),
+pico de audio 15-97 % con musica real del propietario. Pantalla apagada 45 s (estado
+DOZE, `pantalla interactiva=false`): H.264 20/s estable, rele 30/s, audio continuo.
+
+Incidencia 2 (corregida): en 5 ciclos detener/iniciar no hubo cierres (crash buffer
+0, mismo pid), pero tras el primer desacople no volvia el video. La sesion de Android
+Auto seguia viva y la nueva superficie solo recibia un `VideoFocusEvent(gain)`, que
+Android Auto ignora teniendo ya el foco; el decodificador quedaba sin SPS/IDR hasta
+que la escalada propia de Open Headunit hizo un ciclo de foco a los ~62 s. Arreglo en
+el fork (`AionLinkSurfaceService.requestVideoFocus`): el intento inmediato sigue
+igual; los reintentos de 1 s y 3 s, solo si nada se ha mostrado en esa superficie,
+hacen un ciclo completo liberar/retomar con `releaseVideoFocusForKeyframe` y
+`FOCUS_CYCLE_GAP_MS` (400 ms), igual que el relanzamiento en caliente. Repeticion: 5
+de 5 ciclos con video (H.264 20-29/s), AAC y audio
+real; primer cuadro ~1,6 s despues de cada acople; 0 cierres.
+
+Ajustes de Lite tras la prueba: titulo fuera de la barra de estado
+(`fitsSystemWindows`) y boton Abrir Android Auto dirigido a sus ajustes
+(`DefaultSettingsActivity`, el telefono no muestra icono de lanzador de Android
+Auto). Una pulsacion automatica cayo por error en el boton espejo de Sonda; no se
+registro ningun ACTION_START_SELF_MODE posterior. Despues se dejo de operar la
+pantalla porque mostraba ajustes de privacidad abiertos.
+
+Verificacion final Lite: `testLiteDebugUnitTest` (4 795), `assembleLiteDebug` y
+`lintLiteDebug` correctos; APK instalado SHA-256
+`a277d7ace111932a09af21e612d8070286979135564f686c6b2053d00517982c`. Parche
+actualizado `patches/open-headunit/openheadunit-lite.patch` (9 archivos, +302/-5),
+SHA-256 `78c4258db97738c091921d968863b4b29292bbfeaa3eab0ca1900dce0d8c7256`,
+`git apply --check` correcto sobre `3e9c10ab`. Sin commit.
+
+No verificado: tactil (sin coche no hay UIBC), imagen y sonido en el AION, y la
+reconexion con el coche real. Hay que repetirlo con el propietario presente y el
+coche estacionado.

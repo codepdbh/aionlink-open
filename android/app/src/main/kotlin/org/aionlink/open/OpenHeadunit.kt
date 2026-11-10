@@ -13,25 +13,40 @@ import android.content.pm.PackageManager
  * code and handles none of Android Auto's authentication; whether self mode works depends on Open Headunit and Android Auto.
  */
 object OpenHeadunit {
-    const val PACKAGE = "com.andrerinas.headunitrevived"
+    /** The full app, installed by the owner. */
+    const val FULL_PACKAGE = "com.andrerinas.headunitrevived"
+    /** OpenHeadunit Lite: the owner-built edition for AionLink Sonda (branch openheadunit-lite of the fork). */
+    const val LITE_PACKAGE = "org.aionlink.headunit.lite"
+
+    /** The receiver to talk to: the lite edition when installed, otherwise the full app. */
+    fun packageName(context: Context): String = if (has(context, LITE_PACKAGE)) LITE_PACKAGE else FULL_PACKAGE
+
+    /** For diagnostics: which receiver is in use. */
+    fun label(context: Context): String = when {
+        has(context, LITE_PACKAGE) -> "OpenHeadunit Lite"
+        has(context, FULL_PACKAGE) -> "Open Headunit"
+        else -> "ninguno"
+    }
+
+    private fun has(context: Context, name: String): Boolean = try {
+        context.packageManager.getPackageInfo(name, 0); true
+    } catch (_: PackageManager.NameNotFoundException) { false }
     private const val RECEIVER = "com.andrerinas.openheadunit.automation.AutomationReceiver"
     private const val PROJECTION_ACTIVITY = "com.andrerinas.openheadunit.aap.AapProjectionActivity"
     private const val ACTION_SELF_MODE = "com.andrerinas.openheadunit.ACTION_START_SELF_MODE"
     private const val ACTION_DISCONNECT = "com.andrerinas.openheadunit.ACTION_DISCONNECT"
 
-    fun installed(context: Context): Boolean = try {
-        context.packageManager.getPackageInfo(PACKAGE, 0); true
-    } catch (_: PackageManager.NameNotFoundException) { false }
+    fun installed(context: Context): Boolean = has(context, LITE_PACKAGE) || has(context, FULL_PACKAGE)
 
     private fun selfModeBroadcast(context: Context, noUi: Boolean) =
-        context.sendBroadcast(Intent(ACTION_SELF_MODE).setComponent(ComponentName(PACKAGE, RECEIVER)).putExtra("no_ui", noUi))
+        context.sendBroadcast(Intent(ACTION_SELF_MODE).setComponent(ComponentName(packageName(context), RECEIVER)).putExtra("no_ui", noUi))
 
     fun requestSelfModeWithoutUi(context: Context) = selfModeBroadcast(context, noUi = true)
 
     /** Mirror mode: returns a diagnostic line without any Android Auto content. */
     fun startSelfMode(context: Context): String {
         if (!installed(context)) return "Open Headunit no está instalado"
-        val launch = context.packageManager.getLaunchIntentForPackage(PACKAGE)
+        val launch = context.packageManager.getLaunchIntentForPackage(packageName(context))
             ?: return "Open Headunit instalado, sin actividad principal"
         // Bring the receiver UI to the front first so Android Auto has a visible, landscape surface to mirror.
         context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -49,7 +64,7 @@ object OpenHeadunit {
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS)) {
             report("Android no admite actividades en pantallas secundarias"); return
         }
-        val intent = projectionIntent()
+        val intent = projectionIntent(context)
         val allowed = try {
             context.getSystemService(android.app.ActivityManager::class.java)
                 .isActivityStartAllowedOnDisplay(context, displayId, intent)
@@ -62,7 +77,7 @@ object OpenHeadunit {
         }
         val attempt = ++generation
         initiatedSession = true
-        context.sendBroadcast(Intent(ACTION_STOP_SERVICE).setComponent(ComponentName(PACKAGE, RECEIVER)))
+        context.sendBroadcast(Intent(ACTION_STOP_SERVICE).setComponent(ComponentName(packageName(context), RECEIVER)))
         handler.postDelayed({
             if (attempt == generation) {
                 selfModeBroadcast(context, noUi = true)
@@ -79,7 +94,7 @@ object OpenHeadunit {
         }, STOP_SETTLE_MS)
     }
 
-    private fun projectionIntent() = Intent().setComponent(ComponentName(PACKAGE, PROJECTION_ACTIVITY))
+    private fun projectionIntent(context: Context) = Intent().setComponent(ComponentName(packageName(context), PROJECTION_ACTIVITY))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     private const val ACTION_STOP_SERVICE = "com.andrerinas.openheadunit.ACTION_STOP_SERVICE"
@@ -93,7 +108,7 @@ object OpenHeadunit {
     /** Requires a visible AionLink activity (Android limits background starts) and an embeddable activity. */
     fun showOnDisplay(context: Context, displayId: Int): String {
         if (!installed(context)) return "Open Headunit no está instalado"
-        val intent = projectionIntent()
+        val intent = projectionIntent(context)
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS))
             return "Android no admite actividades en pantallas secundarias"
         return try {
@@ -111,12 +126,12 @@ object OpenHeadunit {
      */
     fun stopOnDisplay(context: Context) {
         ++generation
-        if (initiatedSession && installed(context)) context.sendBroadcast(Intent(ACTION_STOP_SERVICE).setComponent(ComponentName(PACKAGE, RECEIVER)))
+        if (initiatedSession && installed(context)) context.sendBroadcast(Intent(ACTION_STOP_SERVICE).setComponent(ComponentName(packageName(context), RECEIVER)))
         initiatedSession = false
         CarDisplayHostActivity.finishCurrent()
     }
 
     fun disconnect(context: Context) {
-        if (installed(context)) context.sendBroadcast(Intent(ACTION_DISCONNECT).setComponent(ComponentName(PACKAGE, RECEIVER)))
+        if (installed(context)) context.sendBroadcast(Intent(ACTION_DISCONNECT).setComponent(ComponentName(packageName(context), RECEIVER)))
     }
 }

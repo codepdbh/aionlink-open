@@ -393,7 +393,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         appendLine(projection.auxiliary.value)
         val video = projection.stream.value
         appendLine("Modo de proyección: ${if (projection.quality.carMode.value) "MODO COCHE (panel propio, pantalla apagada)" else "ESPEJO"}; " +
-            "acceso a música/navegación=${CarInfoListener.granted(getApplication())}; Open Headunit instalado=${OpenHeadunit.installed(getApplication())}")
+            "acceso a música/navegación=${CarInfoListener.granted(getApplication())}; receptor Android Auto=${OpenHeadunit.label(getApplication())}")
         appendLine("Calidad de imagen elegida: ${if (projection.quality.high.value) "ALTA (resolución de la pantalla del coche)" else "COMPATIBLE (1280x720)"}")
         appendLine("Vídeo: ${video.stage}; ${video.detail}; unidades=${video.accessUnits}; datagramas RTP=${video.datagrams}; captura preparada=${ProjectionService.projection != null}; cuadros/s=${video.fps}; escrituras lentas=${video.slowWrites}")
         val captured = ProjectionService.observation.value
