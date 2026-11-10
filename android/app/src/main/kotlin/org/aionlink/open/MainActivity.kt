@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -458,7 +459,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         diagnostics = ViewModelProvider(this)[DiagnosticsViewModel::class.java]
-        setContent { MaterialTheme { AionLinkScreen(diagnostics) } }
+        setContent { AionLinkTheme { AionLinkScreen(diagnostics) } }
     }
     override fun onResume() { super.onResume(); if (::diagnostics.isInitialized) diagnostics.let { it.resumed(); it.usb.refresh() } }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); diagnostics.usb.refresh() }
@@ -581,13 +582,80 @@ class MainActivity : ComponentActivity() {
             confirmButton = { TextButton(onClick = { pendingUsb = null; model.usb.request(id,bootstrap) }) { Text("Continuar con mi vehículo") } },
             dismissButton = { TextButton(onClick = { pendingUsb = null }) { Text("Cancelar") } })
     }
-    Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("AionLink Open", style = MaterialTheme.typography.headlineMedium)
-            Text("Cliente USB + Bluetooth experimental • v0.41.0")
-            Text("Estado: $state", style = MaterialTheme.typography.titleMedium)
-            Text("ICCOA: compatibilidad sin verificar. No hay una sesión negociada ni proyección disponible.")
-            Text(connectionNotice, style = MaterialTheme.typography.titleMedium)
+    // Re-read permissions and services when the owner comes back from Android's settings.
+    var resumeTick by remember { mutableIntStateOf(0) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
+    }
+    val linkPermissions = remember { (model.discovery.requiredPermissions() + model.network.requiredPermissions()).distinct().toTypedArray() }
+    val linkPermissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resumeTick++ }
+    val setup = remember(resumeTick, carMode, externalHeadunit) {
+        buildList {
+            add(SetupItem("Bluetooth y dispositivos cercanos", "Para encontrar el coche y crear su red Wi-Fi Direct",
+                model.discovery.hasPermissions() && model.network.hasPermissions(), "Permitir") { linkPermissionRequest.launch(linkPermissions) })
+            add(SetupItem("Táctil del coche", "Accesibilidad → AionLink: tocar la pantalla del coche",
+                TouchInjectionService.instance != null, "Activar") {
+                context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            })
+            if (carMode && externalHeadunit) add(SetupItem("OpenHeadunit Lite", "Recibe Android Auto en el teléfono para llevarlo al coche",
+                OpenHeadunit.installed(context), null, null))
+        }
+    }
+    val streaming = videoStream.stage == "STREAMING"
+    val connecting = !streaming && (negotiation.busy || network.busy || pendingConnect != null || videoStream.stage == "STARTING" ||
+        state in setOf(ConnectionState.CONNECTING, ConnectionState.PAIRING, ConnectionState.NEGOTIATING,
+            ConnectionState.AUTHENTICATING, ConnectionState.SESSION_ESTABLISHED, ConnectionState.PROJECTION_ACTIVE))
+    val status = when {
+        streaming -> HomeStatus(if (carMode && externalHeadunit) "Android Auto en el coche" else "Proyectando en el coche",
+            "Puedes apagar la pantalla del teléfono. ${videoStream.accessUnits} cuadros enviados", HomeTone.LIVE)
+        connecting -> HomeStatus("Conectando con el coche", connectionNotice, HomeTone.BUSY)
+        scanning -> HomeStatus("Buscando tu coche", "Abre CarLink en la pantalla del coche, con el coche estacionado", HomeTone.BUSY)
+        probeRunning || headunitPreview -> HomeStatus("Prueba local en curso", "No se envía nada al coche", HomeTone.BUSY)
+        state in setOf(ConnectionState.TIMEOUT, ConnectionState.AUTHENTICATION_FAILED, ConnectionState.TRANSPORT_ERROR,
+            ConnectionState.PERMISSION_DENIED, ConnectionState.PROTOCOL_UNSUPPORTED) ->
+            HomeStatus("No se pudo conectar", connectionNotice, HomeTone.PROBLEM)
+        setup.any { !it.done } -> HomeStatus("Falta un paso", "Completa la lista de abajo y vuelve a esta pantalla", HomeTone.IDLE)
+        else -> HomeStatus("Listo para conectar", "Abre CarLink en el coche y pulsa Buscar mi coche", HomeTone.IDLE)
+    }
+    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    val appName = remember { context.applicationInfo.loadLabel(context.packageManager).toString() }
+    val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty().substringBefore("-") }
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            HomeHeader(appName, version)
+            StatusCard(status, busy = connecting || scanning)
+            if (setup.any { !it.done }) SetupCard(setup)
+            if (streaming || connecting) {
+                Button(onClick = model::stop, modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Desconectar") }
+            } else {
+                Button(onClick = {
+                    requestedIccoaOnly = true
+                    if (model.discovery.hasPermissions()) model.scan() else permission.launch(model.discovery.requiredPermissions())
+                }, enabled = !scanning && !gattBusy && !probeRunning && !headunitPreview, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                    Text(if (scanning) "Buscando…" else "Buscar mi coche", style = MaterialTheme.typography.titleMedium)
+                }
+                candidates.forEach { device ->
+                    ReceiverRow(device.name, enabled = !gattBusy && device.connectable != false) {
+                        if (model.network.hasPermissions()) model.prepareConnection(device.id)
+                        else { authorizedConnect = device.id to false; networkPermission.launch(model.network.requiredPermissions()) }
+                    }
+                }
+                if (carMode && externalHeadunit) Text("Si Android Auto no aparece: en sus ajustes, menú ⋮ → «Iniciar servidor unidad princ.» " +
+                    "(de nuevo tras actualizar Android Auto o reiniciar el teléfono).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (showAdvanced) "Ocultar opciones avanzadas ▴" else "Opciones avanzadas y diagnóstico ▾")
+            }
+            if (showAdvanced) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Estado interno: $state", style = MaterialTheme.typography.titleSmall)
+            Text(connectionNotice, style = MaterialTheme.typography.bodyMedium)
             if (network.stage == NetworkStage.CONNECTED && network.mode == org.aionlink.iccoa.NetworkMode.P2P) {
                 Button(onClick = { pendingAuthExchange = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Intentar AUTH experimental") }
                 OutlinedButton(onClick = { pendingAuthProbe = true }, enabled = !authProbe.busy && !authExchange.busy) { Text("Solo comprobar puerto (sin autenticación)") }
@@ -741,6 +809,7 @@ class MainActivity : ComponentActivity() {
             Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\nPermisos concedidos: ${model.discovery.hasPermissions()}\nTransporte: descubrimiento Classic/BLE; sin canal de sesión")
             OutlinedButton(enabled = !operationBusy, onClick = { if (model.captureExport()) export.launch("aionlink-diagnostics.txt") }) { Text("Exportar diagnóstico anonimizado") }
             events.takeLast(20).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
         }
     }
 }
