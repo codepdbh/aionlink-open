@@ -106,10 +106,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         val streamer = org.aionlink.projection.TsRtpStreamer({ }, audio = true)
         val peak = java.util.concurrent.atomic.AtomicInteger(-1)
         try {
-            val display = CarModeDisplay(getApplication(), 1920, 960, 30, org.aionlink.projection.WfdFormats.videoBitrate(1920, 960, 30),
+            // Same bitrate as a car session in car mode, so the test measures what the car receives.
+            val display = CarModeDisplay(getApplication(), 1920, 960, 30, org.aionlink.projection.WfdFormats.relayBitrate(1920, 960, 30),
                 onAccessUnit = { unit, pts, key -> units.incrementAndGet(); synchronized(streamer) { streamer.onAccessUnit(unit, pts, key) } },
                 onError = { error -> probeHandler.post { event("Prueba Android Auto: error $error"); stopHeadunitPreview() } },
-                externalContent = true)
+                externalContent = true, onNote = { note -> probeHandler.post { event("Prueba Android Auto: $note") } })
             display.start()
             headunitDisplay = display
             mutableHeadunitPreview.value = true

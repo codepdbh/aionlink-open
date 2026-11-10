@@ -15,6 +15,7 @@ import android.os.BatteryManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
@@ -41,7 +42,9 @@ import java.util.Date
 class CarModeDisplay(
     private val context: Context, private val width: Int, private val height: Int, private val fps: Int, private val bitrate: Int,
     private val onAccessUnit: (ByteArray, Long, Boolean) -> Unit, private val onError: (String) -> Unit,
-    private val externalContent: Boolean = false
+    private val externalContent: Boolean = false,
+    /** Diagnostic notes, such as thermal adjustments. */
+    private val onNote: (String) -> Unit = {},
 ) : AutoCloseable {
     companion object {
         /** Larger than the car's 160 dpi so text and buttons are comfortable at arm's length (1920x960 → 1280x640 dp). */
@@ -57,17 +60,21 @@ class CarModeDisplay(
     private var dashboard: CarDashboardView? = null
     private var downTime = 0L
     @Volatile private var running = false
+    private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
+    private var thermalStep = 0
 
     /** Main thread only. */
     fun start() {
         try {
             val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             codec = encoder
-            encoder.configure(ScreenEncoder.format(width, height, fps, bitrate, repeatFrames = !externalContent), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.configure(ScreenEncoder.format(width, height, fps, bitrate, repeatFrames = !externalContent, variableBitrate = true),
+                null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val input = encoder.createInputSurface(); surface = input
             encoder.start()
             running = true
             Thread({ drain(encoder) }, "AionLink-car-h264").apply { isDaemon = true; start() }
+            watchThermal()
             // In direct mode the other app is the sole producer for the encoder's Surface.
             // External content: the producer draws into a GL relay that rescales into the encoder surface.
             if (externalContent) { relay = SurfaceRelay(input, width, height); return }
@@ -107,6 +114,32 @@ class CarModeDisplay(
     /** External content only: drop the placeholder once the other app's activity is on the display. Main thread. */
     fun removePlaceholder() {
         if (externalContent) { presentation?.dismiss(); presentation = null }
+    }
+
+    /**
+     * Android's thermal status (API 29): MODERATE lowers the bitrate to 70 %; SEVERE or worse to 50 % and, with
+     * external content, draws one of every two frames (15 fps at 30). Restores both when the phone cools down.
+     */
+    private fun watchThermal() {
+        val power = context.getSystemService(PowerManager::class.java) ?: return
+        val listener = PowerManager.OnThermalStatusChangedListener { status -> applyThermal(status) }
+        thermalListener = listener
+        power.addThermalStatusListener(context.mainExecutor, listener)
+    }
+
+    private fun applyThermal(status: Int) {
+        val step = when {
+            status >= PowerManager.THERMAL_STATUS_SEVERE -> 2
+            status >= PowerManager.THERMAL_STATUS_MODERATE -> 1
+            else -> 0
+        }
+        if (step == thermalStep || !running) return
+        thermalStep = step
+        val target = when (step) { 2 -> bitrate / 2; 1 -> bitrate * 7 / 10; else -> bitrate }
+        try { codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, target) }) }
+        catch (_: IllegalStateException) { return }
+        relay?.frameDivisor = if (step == 2) 2 else 1
+        onNote("Térmico: estado $status; vídeo ${target / 1000} kbps" + if (step == 2 && relay != null) ", mitad de cuadros" else "")
     }
 
     fun requestKeyframe() {
@@ -163,6 +196,10 @@ class CarModeDisplay(
     /** Main thread only. */
     override fun close() {
         running = false
+        thermalListener?.let { listener ->
+            try { context.getSystemService(PowerManager::class.java)?.removeThermalStatusListener(listener) } catch (_: Exception) { }
+        }
+        thermalListener = null
         relay?.close(); relay = null
         presentation?.dismiss(); presentation = null
         dashboard = null

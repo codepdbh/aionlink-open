@@ -118,13 +118,17 @@ class ScreenEncoder(
          * (Open Headunit through the GL relay) must not use it: repeats on top of 30 real fps gave ~41 fps on the S25.
          */
         fun format(width: Int, height: Int, fps: Int, bitrate: Int = WfdFormats.videoBitrate(width, height, fps),
-                   repeatFrames: Boolean = true): MediaFormat =
+                   repeatFrames: Boolean = true, variableBitrate: Boolean = false): MediaFormat =
             MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, fps)
                 setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, fps.toFloat())
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
+                // Realtime at the stream rate, not faster: without it the codec may clock up to drain frames early.
+                setInteger(MediaFormat.KEY_OPERATING_RATE, fps)
+                // Static interface then costs almost nothing; the bitrate is a ceiling rather than a constant.
+                if (variableBitrate) setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
                 setInteger(MediaFormat.KEY_LATENCY, 1)
                 // The car link is TCP (no loss) and the car can ask for wfd_idr_request, so a longer interval spends the
                 // bits on detail instead of frequent keyframes.

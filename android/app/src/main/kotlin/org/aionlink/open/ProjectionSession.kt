@@ -238,7 +238,9 @@ class ProjectionSession(private val context: Context, private val savings: Phone
             val requested = WfdFormats.encodeTarget(play.mode, play.carDisplay, quality.high.value)
             val target = if (requested.source == "CEA" || ScreenEncoder.supports(requested.width, requested.height, requested.fps)) requested
                 else WfdFormats.encodeTarget(play.mode, null, false).copy(source = "CEA_POR_CODIFICADOR")
-            val label = "${target.width}x${target.height}p${target.fps}; ${target.bitrate / 1000} kbps; origen=${target.source}; " +
+            // Car mode content is mostly static interface; it does not need the mirror's bitrate (see relayBitrate).
+            val carBitrate = WfdFormats.relayBitrate(target.width, target.height, target.fps)
+            val label = "${target.width}x${target.height}p${target.fps}; ${(if (carMode) carBitrate else target.bitrate) / 1000} kbps; origen=${target.source}; " +
                 if (externalHeadunit) "fuente=OPEN_HEADUNIT_EXPERIMENTAL" else if (carMode) "fuente=MODO_COCHE" else "fuente=ESPEJO"
             // Touch coordinates arrive in the frame the car displays, which is the encoded frame.
             videoWidth = target.width; videoHeight = target.height
@@ -255,9 +257,10 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 CarModeService.start(context)
                 main.post {
                     try {
-                        CarModeDisplay(context, target.width, target.height, target.fps, target.bitrate, onAccessUnit = { unit, ptsUs, key ->
+                        CarModeDisplay(context, target.width, target.height, target.fps, carBitrate, onAccessUnit = { unit, ptsUs, key ->
                             streamer.onAccessUnit(unit, ptsUs, key); report()
-                        }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit).also { car ->
+                        }, onError = { error -> main.post { stopStream(error) } }, externalContent = externalHeadunit,
+                            onNote = { note -> event(note) }).also { car ->
                             carDisplay = car; car.start()
                             car.externalInputSurface()?.let { surface ->
                                 val sound = if (audioFromBridge) startBridgeAudio(streamer) else null

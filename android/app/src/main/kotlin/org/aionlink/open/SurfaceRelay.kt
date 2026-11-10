@@ -42,6 +42,10 @@ class SurfaceRelay(private val output: Surface, private val width: Int, private 
         private set
     val framesDrawn get() = drawn.get()
 
+    /** Draw one of every [frameDivisor] producer frames (1 = all); the others are consumed and dropped. Thermal relief. */
+    @Volatile var frameDivisor = 1
+    private var received = 0L
+
     init {
         val ready = CountDownLatch(1)
         var failure: Throwable? = null
@@ -84,6 +88,7 @@ class SurfaceRelay(private val output: Surface, private val width: Int, private 
         if (closed) return
         val surfaceTexture = texture2 ?: return
         surfaceTexture.updateTexImage()
+        if (received++ % frameDivisor.coerceAtLeast(1) != 0L) return
         surfaceTexture.getTransformMatrix(matrix)
         GLES20.glViewport(0, 0, width, height)
         GLES20.glUseProgram(program)

@@ -56,4 +56,11 @@ class WfdFormatsTest {
         assertEquals(16_000_000, WfdFormats.videoBitrate(3840, 2160, 60))
         assertTrue(WfdFormats.videoBitrate(1920, 960, 30) > 2 * WfdFormats.videoBitrate(1280, 720, 30) * 9 / 10)
     }
+
+    @Test fun carModeBitrateIsAThirdOfTheMirrorAndBounded() {
+        assertEquals(3_949_714, WfdFormats.relayBitrate(1920, 960, 30))
+        assertTrue(WfdFormats.relayBitrate(1920, 960, 30) * 2 < WfdFormats.videoBitrate(1920, 960, 30))
+        assertEquals(2_500_000, WfdFormats.relayBitrate(800, 480, 30))
+        assertEquals(6_000_000, WfdFormats.relayBitrate(3840, 2160, 60))
+    }
 }

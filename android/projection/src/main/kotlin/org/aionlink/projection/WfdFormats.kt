@@ -110,6 +110,15 @@ object WfdFormats {
     fun videoBitrate(width: Int, height: Int, fps: Int): Int =
         (width.toLong() * height * fps / 5).coerceIn(4_000_000L, 16_000_000L).toInt()
 
+    /**
+     * Car mode content (Android Auto through OpenHeadunit Lite, or AionLink's panel): mostly static interface that
+     * arrives already compressed (Android Auto sent about 0.8 Mbps in the 2026-11-10 measurement). About 0.07 bits per
+     * pixel per frame, bounded to 2.5–6 Mbps: 1920x960p30 → 3.9 Mbps, a third of [videoBitrate], so the Wi-Fi radio
+     * and the encoder work less. Mirror mode keeps [videoBitrate] because it can carry video.
+     */
+    fun relayBitrate(width: Int, height: Int, fps: Int): Int =
+        (width.toLong() * height * fps / 14).coerceIn(2_500_000L, 6_000_000L).toInt()
+
     /** Printable, bounded copy for diagnostics; the value describes the car display, not the user. */
     fun safeExcerpt(value: String?): String = value?.filter { it in ' '..'~' }?.take(160) ?: "ausente"
 }
