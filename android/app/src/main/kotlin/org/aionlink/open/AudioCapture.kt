@@ -10,8 +10,6 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import org.aionlink.projection.TsRtpStreamer
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Captures other apps' playback with the public AudioPlaybackCapture API (Samsung's default music path also
@@ -45,7 +43,7 @@ class AudioCapture(
         if (capture.state != AudioRecord.STATE_INITIALIZED) { capture.release(); onError("AUDIORECORD_NO_INICIALIZADO"); return }
         record = capture
         capture.startRecording()
-        pump = AacPump({ buffer, size -> capture.read(buffer, size).coerceAtLeast(0) }, onFrame, onError, onLevel).also { it.start() }
+        pump = AacPump({ chunk, size -> capture.read(chunk, 0, size).coerceAtLeast(0) }, onFrame, onError, onLevel).also { it.start() }
     }
 
     override fun close() {
@@ -56,18 +54,22 @@ class AudioCapture(
 }
 
 /**
- * Encodes 48 kHz stereo PCM16 from [read] into AAC-LC frames with ADTS headers. [read] fills the buffer from its
+ * Encodes 48 kHz stereo PCM16 from [read] into AAC-LC frames with ADTS headers. [read] fills the array from its
  * start with at most the given number of bytes and returns the count, 0 when nothing arrived, or negative on error.
+ * [read] gets a heap array, never codec memory: it may block (a pipe) while [close] releases the codec, and a
+ * native copy into a released codec buffer crashes the process (SIGSEGV seen on 2026-11-09 with the bridge pipe).
  */
 class AacPump(
-    private val read: (ByteBuffer, Int) -> Int,
+    private val read: (ByteArray, Int) -> Int,
     private val onFrame: (ByteArray, Long) -> Unit,
     private val onError: (String) -> Unit,
     private val onLevel: (Int) -> Unit = {},
 ) : AutoCloseable {
-    companion object { const val SAMPLE_RATE = 48000; const val CHANNELS = 2; const val LEVEL_REPORT_MS = 5000L }
+    companion object { const val SAMPLE_RATE = 48000; const val CHANNELS = 2; const val LEVEL_REPORT_MS = 5000L; const val CHUNK_BYTES = 4096 }
     @Volatile private var running = false
     private var codec: MediaCodec? = null
+    /** Held while touching codec buffers and while releasing the codec, so neither copy runs on freed memory. */
+    private val lock = Any()
 
     fun start() {
         val aac = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, CHANNELS).apply {
@@ -86,24 +88,37 @@ class AacPump(
 
     private fun feed(encoder: MediaCodec) {
         val bytesPerSecond = SAMPLE_RATE * CHANNELS * 2L
+        val chunk = ByteArray(CHUNK_BYTES)
         var peak = 0
         var reportedAt = System.currentTimeMillis()
         try {
             while (running) {
-                val index = encoder.dequeueInputBuffer(20_000)
-                if (index < 0) continue
-                val buffer = encoder.getInputBuffer(index) ?: continue
-                buffer.clear()
-                val count = read(buffer, minOf(buffer.capacity(), 4096))
-                if (count < 0) { encoder.queueInputBuffer(index, 0, 0, System.nanoTime() / 1000, 0); if (running) onError("AUDIO_IN_FIN"); return }
-                if (count == 0) { encoder.queueInputBuffer(index, 0, 0, System.nanoTime() / 1000, 0); continue }
-                val samples = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-                for (i in 0 until count / 2) peak = maxOf(peak, kotlin.math.abs(samples.get(i).toInt()))
+                val count = read(chunk, CHUNK_BYTES)
+                if (!running) return
+                if (count < 0) { if (running) onError("AUDIO_IN_FIN"); return }
+                if (count == 0) { Thread.sleep(5); continue }
+                for (i in 0 until count / 2) {
+                    val sample = (chunk[2 * i].toInt() and 0xff) or (chunk[2 * i + 1].toInt() shl 8)
+                    peak = maxOf(peak, kotlin.math.abs(sample.toShort().toInt()))
+                }
                 val now = System.currentTimeMillis()
                 if (now - reportedAt >= LEVEL_REPORT_MS) { onLevel(peak * 100 / 32768); peak = 0; reportedAt = now }
                 // Timestamp of the first sample in this chunk, on the same monotonic clock as the video encoder.
                 val ptsUs = System.nanoTime() / 1000 - count * 1_000_000L / bytesPerSecond
-                encoder.queueInputBuffer(index, 0, count, ptsUs, 0)
+                var offset = 0
+                while (offset < count && running) {
+                    val index = encoder.dequeueInputBuffer(20_000)
+                    if (index < 0) continue
+                    synchronized(lock) {
+                        if (!running) return
+                        val buffer = encoder.getInputBuffer(index) ?: return@synchronized
+                        buffer.clear()
+                        val size = minOf(buffer.remaining(), count - offset)
+                        buffer.put(chunk, offset, size)
+                        encoder.queueInputBuffer(index, 0, size, ptsUs + offset * 1_000_000L / bytesPerSecond, 0)
+                        offset += size
+                    }
+                }
             }
         } catch (error: Exception) { if (running) onError("AUDIO_IN_${error.javaClass.simpleName}") }
     }
@@ -114,21 +129,25 @@ class AacPump(
             while (running) {
                 val index = encoder.dequeueOutputBuffer(info, 50_000)
                 if (index < 0) continue
-                val buffer = encoder.getOutputBuffer(index)
-                if (buffer != null && info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
-                    val frame = ByteArray(7 + info.size)
-                    System.arraycopy(TsRtpStreamer.adtsHeader(info.size), 0, frame, 0, 7)
-                    buffer.position(info.offset); buffer.get(frame, 7, info.size)
-                    onFrame(frame, info.presentationTimeUs)
+                val frame = synchronized(lock) {
+                    if (!running) return
+                    val buffer = encoder.getOutputBuffer(index)
+                    val copy = if (buffer != null && info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                        ByteArray(7 + info.size).also {
+                            System.arraycopy(TsRtpStreamer.adtsHeader(info.size), 0, it, 0, 7)
+                            buffer.position(info.offset); buffer.get(it, 7, info.size)
+                        }
+                    } else null
+                    encoder.releaseOutputBuffer(index, false)
+                    copy
                 }
-                encoder.releaseOutputBuffer(index, false)
+                frame?.let { onFrame(it, info.presentationTimeUs) }
             }
         } catch (error: Exception) { if (running) onError("AUDIO_OUT_${error.javaClass.simpleName}") }
     }
 
     override fun close() {
-        running = false
-        codec?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }
-        codec = null
+        val encoder = synchronized(lock) { running = false; codec.also { codec = null } }
+        encoder?.let { try { it.stop() } catch (_: IllegalStateException) { }; it.release() }
     }
 }

@@ -16,7 +16,6 @@ class BridgeAudio(
 ) : AutoCloseable {
     private val pipe = ParcelFileDescriptor.createPipe()
     private val input = FileInputStream(pipe[0].fileDescriptor)
-    private var chunk = ByteArray(4096)
     @Volatile private var closed = false
     @Volatile var bytesReceived = 0L
         private set
@@ -26,10 +25,9 @@ class BridgeAudio(
 
     fun start() = pump.start()
 
-    /** Fills whole stereo frames (4 bytes) so samples never split across encoder buffers. */
-    private fun read(buffer: java.nio.ByteBuffer, size: Int): Int {
+    /** Reads whole stereo frames (4 bytes) so samples never split across encoder buffers. */
+    private fun read(chunk: ByteArray, size: Int): Int {
         val wanted = size - size % 4
-        if (chunk.size < wanted) chunk = ByteArray(wanted)
         return try {
             var count = input.read(chunk, 0, wanted)
             if (count < 0) return -1
@@ -38,7 +36,6 @@ class BridgeAudio(
                 if (more < 0) return -1
                 count += more
             }
-            buffer.put(chunk, 0, count)
             bytesReceived += count
             count
         } catch (_: IOException) { -1 }
@@ -51,6 +48,7 @@ class BridgeAudio(
         closed = true
         pump.close()
         releaseWriteEnd()
+        // Also wakes the pump thread if it is blocked reading the pipe; it then sees the pump stopped and exits.
         try { pipe[0].close() } catch (_: IOException) { }
     }
 }
