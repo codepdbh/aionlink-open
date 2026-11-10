@@ -2459,3 +2459,55 @@ propietario ("funciona una belleza", 2026-11-10, sin diagnostico del coche
 archivado). Instrucciones de uso, compilacion de ambas apps, firma compartida y
 licencias (GPL de AionLink, AGPL de Lite). Commit directo a main de ambos
 repositorios autorizado por el propietario.
+
+## Rendimiento y temperatura (sobre 0.42) - 2026-11-10
+
+Solicitud del propietario: mejorar rendimiento de transmision y del telefono, que
+"a ratos calienta". Mediciones en el S25 con la prueba local de Android Auto
+(sin coche, sin transmision Wi-Fi), pantalla apagada, cargando por USB; script de
+muestreo con `top`, `dumpsys thermalservice` y `dumpsys media.metrics`.
+
+Hallazgos:
+- CPU baja durante la proyeccion: Sonda ~6 %, Lite ~6 %, Android Auto ~5 %,
+  surfaceflinger ~2,5 % (de 800 %). La temperatura AP sube de ~31 a ~40-43 C por
+  los bloques de video por hardware: Android Auto codifica 1080p, Lite decodifica,
+  la GPU copia y AionLink recodifica.
+- `media.metrics`: Android Auto produce 1,5-2,0 Mbps reales (limite 7,2 Mbps
+  VBR); AionLink recodificaba a 5,66 Mbps reales con limite de 11,06 Mbps.
+- Historial de bateria del propietario 17:02-17:14 (sin cable, probablemente en el
+  coche): 460-770 mA de descarga media y bateria de 25 a 31 C.
+- Causa principal de calor tras usar el coche: al desconectar, la sesion de
+  Android Auto seguia viva sin cliente. Sin nada conectado: Lite 10,6 %, Android
+  Auto 13,6 + 2,6 %, surfaceflinger 6 %, mas CPU que proyectando, hasta detenerla a
+  mano o reiniciar.
+
+Cambios:
+- `WfdFormats.relayBitrate`: modo coche (Android Auto o panel) a ~0,07 bits por
+  pixel y cuadro, acotado a 2,5-6 Mbps (1920x960p30 = 3,95 Mbps). El espejo sigue con
+  `videoBitrate`. La prueba local usa el mismo valor que el coche.
+- Codificador del modo coche en VBR explicito y `KEY_OPERATING_RATE` = fps.
+- Proteccion termica en `CarModeDisplay` (API 29 `addThermalStatusListener`):
+  MODERATE baja el bitrate al 70 %; SEVERE o peor al 50 % y el rele dibuja uno de
+  cada dos cuadros; se restaura al enfriarse y se anota en eventos. No se disparo en
+  estas pruebas (SKIN maximo 36 C; primer umbral 38 C): sin verificar en hardware.
+- Fork, `AionLinkSurfaceService`: si ningun cliente vuelve en 60 s tras desacoplarse,
+  detiene la sesion con `ACTION_STOP_SERVICE` (ByeBye a Android Auto). Temporizador
+  a nivel de proceso porque el servicio se destruye al desvincularse.
+
+Resultados: AionLink 3,10 Mbps reales a 25,7 fps (antes 5,66 Mbps a 26,9 fps):
+-45 % de datos hacia el coche. La temperatura en la prueba local no cambia de forma
+apreciable (no incluye radio Wi-Fi). Cierre por inactividad: desacople 17:52:06,
+parada 17:53:06; a los 20 s todo seguia activo (reconexion rapida posible) y tras la
+parada Lite, Android Auto y surfaceflinger a 0-0,2 %. Reconexion posterior: sesion
+nueva con video en los primeros 5 s, sin `peer_silent` ni cierres.
+
+Verificacion: AionLink `testDebugUnitTest` (incluida prueba nueva de
+`relayBitrate`), `:projection:test`, `:app:assembleDebug`, `:app:lintDebug`
+correctos, APK `ad8f9826f743b171aab5d97c6f95a74cf4f2deaae5f5322e9917cdd8d1780cc9`;
+Lite `assembleLiteDebug` y `lintLiteDebug` correctos, APK
+`feb1f11579e67130aa6aaa33c49c55918658b4145d311db8d659edd8d0d6c82c`. Incidencias de
+herramienta: `top -n 1` da 0 % (sin intervalo; se usa `-n 2`); `python -I` ignora
+PYTHONIOENCODING (se usa `-X utf8`); la lectura de `current_now` esta denegada.
+Pendiente: medir en el coche (radio Wi-Fi) y la proteccion termica en un dia caluroso.
+Mayor ahorro posible, no implementado: enviar el H.264 de Android Auto sin
+decodificar ni recodificar; requiere comprobar si el coche acepta 1920x1080.
