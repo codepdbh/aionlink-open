@@ -2392,3 +2392,70 @@ SHA-256 `78c4258db97738c091921d968863b4b29292bbfeaa3eab0ca1900dce0d8c7256`,
 No verificado: tactil (sin coche no hay UIBC), imagen y sonido en el AION, y la
 reconexion con el coche real. Hay que repetirlo con el propietario presente y el
 coche estacionado.
+
+## 0.42 - Pantallas simplificadas de Sonda y OpenHeadunit Lite - 2026-11-10
+
+Solicitud del propietario: pantallas mas bonitas y, en Sonda, solo lo necesario;
+los permisos deben aparecer al reinstalar o instalar en otro telefono.
+
+Sonda 0.42.0 (versionCode 42): tema propio azul oscuro/claro (`HomeUi.kt`).
+Pantalla principal: tarjeta de estado (listo, buscando, conectando, Android Auto
+en el coche, error), lista "Antes de conectar" que solo aparece si falta algo
+(BLUETOOTH_SCAN/CONNECT + NEARBY_WIFI_DEVICES, servicio de accesibilidad,
+OpenHeadunit Lite instalado), boton Buscar mi coche con el receptor ICCOA como
+fila Conectar, y Desconectar durante la sesion. Todos los controles anteriores
+(modos, calidad, pruebas locales, USB, AUTH experimental, diagnostico y eventos)
+siguen en "Opciones avanzadas y diagnostico", plegado. Los valores por defecto de
+`car_mode` y `external_headunit` pasan a true: un telefono nuevo empieza en
+Android Auto. No se comprueba el puerto 5277 desde la app: una conexion de prueba
+podria dejar ocupado el servidor de Android Auto (ver `peer_silent`); se muestra
+una indicacion fija.
+
+Lite: misma paleta con vistas Android; estado (Listo / Falta un paso / Android
+Auto en la pantalla del coche / sesion abierta), lista con Leer (aviso, dialogo)
+y Permitir solo si faltan, boton Ajustes de Android Auto, y Detener sesion solo con
+sesion activa.
+
+Verificacion: Sonda `testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`
+correctos, APK SHA-256
+`f3a9bc046accee480a5c67cd918de05280f40ca910d81f53c45d665bfd023d2f`. Lite
+`assembleLiteDebug` y `lintLiteDebug` correctos, sin avisos en archivos lite.
+Instaladas con `adb install -r` (misma firma, sin perder datos). Capturas: Lite
+"Listo" con los cuatro puntos marcados; Sonda mostro "Falta un paso" con permisos
+de enlace pendientes, el propietario pulso Permitir y la pantalla paso a "Listo
+para conectar" con la lista oculta (permisos verificados con dumpsys). 0 cierres.
+Pendiente: conexion real al coche con la nueva pantalla.
+
+### Icono de AionLink - 2026-11-10
+
+El propietario confirma que 0.42 "funciona una belleza" y aporta su icono
+`opencarlink.png` (1254x1254 RGBA, SHA-256
+`0f1728827e432a05835250a8c27bb2295c037d98c9f2e9837a3511cd79be213a`), movido de la raiz a
+`docs/assets/opencarlink.png`. Se
+generan con Pillow recursos de Sonda/AionLink: icono adaptativo
+(`mipmap-anydpi/ic_launcher.xml`, fondo `#010B40` muestreado del original, capa
+frontal con el cuadrado al 81 % para que la "A" quede en la zona segura de 66 dp,
+capa monocroma con solo la letra, la carretera y el enlace para iconos tematicos),
+PNG clasicos de 48 a 192 px (AAPT los exige como base aunque minSdk sea 29) y
+logo de 168 px en la cabecera de la pantalla principal. `testDebugUnitTest`,
+`:app:assembleDebug` y `:app:lintDebug` correctos; queda el aviso informativo
+IconXmlAndPng, propio de esa combinacion. APK SHA-256
+`d5808170ba03cd25899efe429b82382c4ab08d9e7abeeb4021ee3454d25bc477`. No instalado:
+el telefono dejo de aparecer en ADB; instalado despues con `adb install -r` al
+reconectarlo. Captura: el icono adaptativo se ve completo en la forma de Samsung y
+el logo en la cabecera. Observacion: tras estas actualizaciones el servicio de
+accesibilidad de Sonda ya no figura en `enabled_accessibility_services` (solo el de
+`org.aionlink.open`); la lista "Antes de conectar" lo muestra y el propietario debe
+reactivarlo (por ADB fue denegado antes). OpenHeadunit Lite conserva su icono.
+
+### README y publicacion - 2026-11-10
+
+A peticion del propietario se reescribe README.md: icono, capturas de 0.42
+(`docs/assets/screenshots/`, recortadas sin barra de estado ni notificaciones),
+tabla de estado que separa lo verificado en el AION (sesion ICCOA desde 0.25;
+espejo, audio y 351/351 toques con 0.34), lo medido solo en el telefono (Android
+Auto por OpenHeadunit Lite, pantalla apagada, reconexion) y lo informado por el
+propietario ("funciona una belleza", 2026-11-10, sin diagnostico del coche
+archivado). Instrucciones de uso, compilacion de ambas apps, firma compartida y
+licencias (GPL de AionLink, AGPL de Lite). Commit directo a main de ambos
+repositorios autorizado por el propietario.
