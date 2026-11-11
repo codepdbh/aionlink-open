@@ -192,7 +192,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     /** Manual fallback when the automatic start was blocked (for example, AionLink was not on screen). */
     fun showHeadunitOnCarDisplay(activity: Context): String {
         return if (headunitBridge != null) "El puente de superficie ya fue solicitado; consulta los eventos"
-        else "Selecciona Open Headunit antes de conectar y espera al inicio del vídeo"
+        else "Selecciona OpenHeadunit Lite antes de conectar y espera al inicio del vídeo"
     }
 
     private fun play(play: WfdPlay) {
@@ -264,7 +264,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                             carDisplay = car; car.start()
                             car.externalInputSurface()?.let { surface ->
                                 val sound = if (audioFromBridge) startBridgeAudio(streamer) else null
-                                HeadunitSurfaceBridge(context, surface, sound) { result -> event("Open Headunit: $result") }
+                                HeadunitSurfaceBridge(context, surface, sound) { result -> event("OpenHeadunit Lite: $result") }
                                     .also { bridge -> headunitBridge = bridge; bridge.start() }
                             }
                         }

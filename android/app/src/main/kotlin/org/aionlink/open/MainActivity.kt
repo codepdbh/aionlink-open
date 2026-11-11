@@ -680,7 +680,7 @@ class MainActivity : ComponentActivity() {
             if (carMode) {
                 OutlinedButton(onClick = { model.projection.quality.setExternalHeadunit(!externalHeadunit) },
                     enabled = videoStream.stage != "STREAMING" && videoStream.stage != "STARTING", modifier = Modifier.fillMaxWidth()) {
-                    Text(if (externalHeadunit) "Fuente próxima conexión: Android Auto (Open Headunit en pantalla virtual)" else "Fuente próxima conexión: panel AionLink")
+                    Text(if (externalHeadunit) "Fuente próxima conexión: Android Auto (OpenHeadunit Lite en pantalla virtual)" else "Fuente próxima conexión: panel AionLink")
                 }
                 if (externalHeadunit) {
                     Text("Experimental: las versiones compatibles y firmadas igual pueden compartir vídeo directamente, sin actividad en pantalla virtual. " +
@@ -695,11 +695,11 @@ class MainActivity : ComponentActivity() {
             }
             Text("Android Auto", style = MaterialTheme.typography.titleMedium)
             if (OpenHeadunit.installed(context)) {
-                Text("Open Headunit muestra Android Auto en este teléfono; en modo ESPEJO, AionLink lo lleva a la pantalla del coche con táctil y sonido. " +
+                Text("OpenHeadunit Lite muestra Android Auto en este teléfono; en modo ESPEJO, AionLink lo lleva a la pantalla del coche con táctil y sonido. " +
                     "Necesita la pantalla encendida (usa brillo mínimo).")
                 OutlinedButton(onClick = { model.event(OpenHeadunit.startSelfMode(context)) }, enabled = !carMode,
-                    modifier = Modifier.fillMaxWidth()) { Text("Abrir Android Auto (Open Headunit, self mode)") }
-            } else Text("Para ver Android Auto en el coche instala «Open Headunit» (Google Play) y activa en Android Auto el servidor de unidad principal " +
+                    modifier = Modifier.fillMaxWidth()) { Text("Abrir Android Auto (OpenHeadunit Lite, self mode)") }
+            } else Text("Para ver Android Auto en el coche instala «OpenHeadunit Lite» (compilada desde el fork, misma firma que AionLink) y activa en Android Auto el servidor de unidad principal " +
                 "para desarrolladores. Es una app de terceros; AionLink solo la abre y comparte su pantalla.")
             OutlinedButton(onClick = { model.projection.quality.setHigh(!highQuality) }, enabled = !probeRunning,
                 modifier = Modifier.fillMaxWidth()) {

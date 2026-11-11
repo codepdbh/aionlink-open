@@ -88,8 +88,11 @@ publicadas son de investigación (`-research`).
 1. **AionLink Sonda** (`org.aionlink.open.lab`), compilada desde este repositorio.
 2. **OpenHeadunit Lite** (`org.aionlink.headunit.lite`), compilada desde la rama
    `main` del [fork de Open Headunit](https://github.com/codepdbh/open-headunit).
-3. **Las dos firmadas con la misma clave.** El puente entre ellas usa un permiso
-   `signature`; con claves distintas, Android no deja que se comuniquen.
+3. **Las dos firmadas con la misma clave.** El puente entre ellas usa el permiso
+   `signature` `org.aionlink.headunit.lite.permission.AIONLINK_SURFACE`; con claves
+   distintas, Android no deja que se comuniquen. Instala primero la Lite, que es la
+   que define ese permiso. La Lite no comparte paquete ni permisos con el Open
+   Headunit completo: ambos pueden estar instalados y AionLink solo usa la Lite.
 4. **Android Auto** con el modo desarrollador activo. En sus ajustes, menú ⋮ →
    **Iniciar servidor unidad princ.** Repítelo después de cada actualización de
    Android Auto y de cada reinicio del teléfono.
@@ -178,7 +181,8 @@ Una edición de [Open Headunit](https://github.com/andreknieriem/open-headunit)
   navegación ni USB.
 
 AionLink no incluye código de Open Headunit ni gestiona la autenticación de Android
-Auto; solo se comunica con Lite por el puente documentado.
+Auto; solo se comunica con el paquete `org.aionlink.headunit.lite` por el puente
+documentado, y nunca con el Open Headunit completo.
 
 ## Cómo funciona
 

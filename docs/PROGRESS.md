@@ -2511,3 +2511,32 @@ PYTHONIOENCODING (se usa `-X utf8`); la lectura de `current_now` esta denegada.
 Pendiente: medir en el coche (radio Wi-Fi) y la proteccion termica en un dia caluroso.
 Mayor ahorro posible, no implementado: enviar el H.264 de Android Auto sin
 decodificar ni recodificar; requiere comprobar si el coche acepta 1920x1080.
+
+## Paquete y permisos propios de OpenHeadunit Lite - 2026-11-11
+
+Solicitud del propietario: que OpenHeadunit Lite no choque con la version completa
+y que AionLink funcione solo con el paquete de la Lite.
+
+El `applicationId` ya era propio (`org.aionlink.headunit.lite`), pero la Lite seguia
+declarando los permisos de la completa (`com.andrerinas.openheadunit.permission.
+AIONLINK_SURFACE` y `NAVIGATION_UPDATE`). Android rechaza instalar un segundo
+paquete que declare el mismo permiso con otra firma, asi que la completa de Google
+Play y la Lite no podian convivir. Fork: marcador de manifiesto `permissionPrefix`
+(`com.andrerinas.openheadunit` por defecto, `org.aionlink.headunit.lite` en el
+flavor lite). Verificado con `aapt2`: la Lite solo contiene
+`org.aionlink.headunit.lite.permission.*` y el manifiesto `githubDebug` conserva los
+nombres originales.
+
+AionLink: `OpenHeadunit.PACKAGE = org.aionlink.headunit.lite`, sin alternativa a la
+completa; `<queries>` solo con la Lite; `uses-permission` con el permiso nuevo;
+textos de la interfaz y eventos dicen OpenHeadunit Lite.
+
+Instalacion en el S25: primero la Lite (define el permiso), despues Sonda, ambas con
+`adb install -r`; `org.aionlink.headunit.lite.permission.AIONLINK_SURFACE:
+granted=true` en Sonda. El servidor de unidad principal de Android Auto no estaba
+escuchando (telefono reiniciado) y se inicio desde su menu. Prueba local: superficie
+y audio aceptados, H.264 19-25 unidades/s, AAC ~47 tramas/s, 0 cierres. APK Sonda
+`2d79982c4b9a84afd5c4eea59c7d4b6823cbb374f5a69ef5c194363dba19b01b`, APK Lite
+`7e3c2e8744c1ea93ced857aa6fe1369354fc811d88ee3c2ab3277cf8e39c7b03`. Sonda: tests,
+assembleDebug y lintDebug correctos; Lite: assembleLiteDebug y lintLiteDebug
+correctos.

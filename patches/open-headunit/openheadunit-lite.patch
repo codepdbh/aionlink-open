@@ -1,8 +1,19 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 72e87ee2..907cfb98 100644
+index 72e87ee2..90bfc0c9 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
-@@ -125,6 +125,25 @@ android {
+@@ -94,6 +94,10 @@ android {
+         // changed to Open Headunit. The code package and namespace stay openheadunit, so the
+         // applicationId deliberately differs from the namespace, like com.google.talk for Hangouts.
+         applicationId = "com.andrerinas.headunitrevived"
++        // Prefix of the custom permissions this app defines. Each edition owns its own names so the
++        // full app and OpenHeadunit Lite never define the same permission (Android refuses the second
++        // install when two packages signed with different keys declare one).
++        manifestPlaceholders["permissionPrefix"] = "com.andrerinas.openheadunit"
+         minSdk = 16
+         targetSdk = 36
+         versionCode = 122
+@@ -125,6 +129,26 @@ android {
              dimension = "distribution"
              // Default minSdk 16 from defaultConfig is used
          }
@@ -12,6 +23,7 @@ index 72e87ee2..907cfb98 100644
 +        create("lite") {
 +            dimension = "distribution"
 +            applicationId = "org.aionlink.headunit.lite"
++            manifestPlaceholders["permissionPrefix"] = "org.aionlink.headunit.lite"
 +            versionNameSuffix = "-lite"
 +            ndk { abiFilters += "arm64-v8a" }
 +            @Suppress("DEPRECATION")
@@ -86,19 +98,21 @@ index 00000000..1a6078d9
 +</manifest>
 diff --git a/app/src/lite/README.md b/app/src/lite/README.md
 new file mode 100644
-index 00000000..14e54728
+index 00000000..f2b29c9b
 --- /dev/null
 +++ b/app/src/lite/README.md
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +# OpenHeadunit Lite (flavor `lite`)
 +
 +An edition of Open Headunit that does one job: be the Android Auto receiver for **AionLink Sonda**, which
 +shows it on a GAC AION car display through the AionLink surface bridge (`AionLinkSurfaceService`, video,
 +touch and sound).
 +
-+It installs next to the full app as `org.aionlink.headunit.lite`. AionLink Sonda uses it when it is
-+installed and falls back to the full Open Headunit otherwise. Both apps must be signed with the same key as
-+AionLink Sonda, because the bridge permission is `signature`.
++It installs next to the full app as `org.aionlink.headunit.lite` and shares no identifier with it: its custom
++permissions are `org.aionlink.headunit.lite.permission.AIONLINK_SURFACE` and `...NAVIGATION_UPDATE` (manifest
++placeholder `permissionPrefix`), so the full app, whoever signed it, can stay installed. AionLink Sonda talks
++only to this package. Lite and AionLink Sonda must be signed with the same key, because the bridge permission is
++`signature`; install Lite first, since it defines that permission.
 +
 +What differs from the `github` flavor; the shared code is unchanged:
 +
@@ -380,6 +394,33 @@ index 00000000..c8145e90
 +    <string name="lite_stop">Stop session</string>
 +    <string name="lite_license">Version %1$s (%2$s). Based on Open Headunit, AGPL-3.0. Source: github.com/codepdbh/open-headunit</string>
 +</resources>
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index b1d3534c..d25d23cc 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -54,11 +54,11 @@
+         android:required="false" />
+ 
+     <permission
+-        android:name="com.andrerinas.openheadunit.permission.NAVIGATION_UPDATE"
++        android:name="${permissionPrefix}.permission.NAVIGATION_UPDATE"
+         android:protectionLevel="signature" />
+ 
+     <permission
+-        android:name="com.andrerinas.openheadunit.permission.AIONLINK_SURFACE"
++        android:name="${permissionPrefix}.permission.AIONLINK_SURFACE"
+         android:protectionLevel="signature" />
+ 
+     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
+@@ -281,7 +281,7 @@
+         </service>
+         <service android:name=".aap.AionLinkSurfaceService"
+             android:exported="true"
+-            android:permission="com.andrerinas.openheadunit.permission.AIONLINK_SURFACE" />
++            android:permission="${permissionPrefix}.permission.AIONLINK_SURFACE" />
+         <service android:name=".location.GpsLocationService" />
+         <service
+             android:name=".main.FloatingButtonService"
 diff --git a/app/src/main/java/com/andrerinas/openheadunit/App.kt b/app/src/main/java/com/andrerinas/openheadunit/App.kt
 index 6f90f77a..0a6b333d 100644
 --- a/app/src/main/java/com/andrerinas/openheadunit/App.kt
