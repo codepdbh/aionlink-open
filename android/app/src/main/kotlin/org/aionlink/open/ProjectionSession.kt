@@ -91,7 +91,8 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 "(${SessionControlServer.methodName(frame.method)}); tipo=${frame.messageType}")
         }
         fun passive(port: Int, label: String, assign: (SessionControlServer) -> Unit) = try {
-            SessionControlServer(local, sessionKey.copyOf(), port, active = false, onFrame = { logFrame(label, it) }) { status ->
+            SessionControlServer(local, sessionKey.copyOf(), port, active = false, onFrame = { logFrame(label, it) },
+                onCustomKey = { body -> customKey(label, body) }) { status ->
                 if (label == "MEDIA") mediaStage = status.stage else sensorStage = status.stage
                 val text = "MEDIA $mediaStage • SENSOR $sensorStage"
                 if (mutableAux.value != text) { mutableAux.value = text; event("Canal $label: ${status.stage}") }
@@ -108,7 +109,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                     SessionControlServer.METHOD_DISCONNECT -> main.post { stop("COCHE_PIDIO_DESCONEXION") }
                     SessionControlServer.METHOD_CAR_TO_FOREGROUND -> { encoder?.requestKeyframe(); carDisplay?.requestKeyframe(); main.post { openLauncherOnce() } }
                 }
-            }, onSent = { event("Canal CONTROL envió: $it") }, onStatus = { status ->
+            }, onSent = { event("Canal CONTROL envió: $it") }, onCustomKey = { body -> customKey("CONTROL", body) }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
                 if (mutableControl.value.carConfig != status.carConfig) event("Configuración del coche: ${status.carConfig}")
                 mutableControl.value = status
@@ -141,14 +142,47 @@ class ProjectionSession(private val context: Context, private val savings: Phone
         event("Lanzador abierto en el teléfono")
     }
 
+    private fun customKey(channel: String, body: ByteArray) {
+        val parsed = org.aionlink.projection.CarKeys.parseCustomKeyEvent(body)
+        body.fill(0)
+        if (parsed == null) { main.post { event("Tecla del coche ($channel): mensaje no válido") }; return }
+        main.post { carKey(parsed.first, parsed.second, channel) }
+    }
+
+    /**
+     * Steering-wheel or panel key from the car (CONTROL CustomKeyEvent or UIBC). Every key is logged with its code so the
+     * owner can tell which button sends what. With Open Headunit it goes to Android Auto through the bridge; otherwise
+     * media keys go to the phone's active media session and navigation keys to the accessibility service.
+     */
+    private fun carKey(action: Int, code: Int, channel: String) {
+        val keys = org.aionlink.projection.CarKeys
+        val android = keys.toAndroid(code)
+        val target = when {
+            android == null -> "sin acción"
+            headunitBridge != null -> if (headunitBridge?.key(action, android) == true) "Android Auto" else "puente sin conexión"
+            keys.isMedia(android) -> { dispatchMediaKey(action, android); "reproductor del teléfono" }
+            carDisplay == null && action == 1 -> { TouchInjectionService.instance?.key(UibcEvent.Key(action, android, 0)); "teléfono" }
+            else -> "sin acción en este modo"
+        }
+        if (action == 0 || android == null) event("Tecla del coche ($channel): código=$code (${keys.name(code)}); " +
+            "acción=${if (action == 0) "pulsar" else "soltar"} → $target")
+    }
+
+    private fun dispatchMediaKey(action: Int, keyCode: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+        context.getSystemService(android.media.AudioManager::class.java)
+            ?.dispatchMediaKeyEvent(android.view.KeyEvent(now, now, action, keyCode, 0))
+    }
+
     private fun onUibc(input: UibcEvent) {
         val counted = mutableTouch.value.copy(events = mutableTouch.value.events + 1)
         mutableTouch.value = counted
         main.post {
+            if (input is UibcEvent.Key) { carKey(input.action, input.keyCode, "UIBC"); return@post }
             // Car mode: the encoded frame is AionLink's own display, so touches go straight to its views.
             carDisplay?.let { car ->
                 when (input) {
-                    is UibcEvent.Key -> car.key(input.keyCode)
+                    is UibcEvent.Key -> Unit
                     is UibcEvent.Touch -> input.pointers.firstOrNull()?.let { pointer ->
                         if (!car.isExternalContent()) {
                             car.touch(input.action, pointer.x.toFloat(), pointer.y.toFloat())
@@ -171,7 +205,7 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 return@post
             }
             when (input) {
-                is UibcEvent.Key -> service.key(input)
+                is UibcEvent.Key -> Unit
                 is UibcEvent.Touch -> {
                     val pointer = input.pointers.firstOrNull() ?: return@post
                     // The car reports coordinates in the negotiated video frame; fall back to its stated size.

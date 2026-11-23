@@ -158,7 +158,6 @@ class CarModeDisplay(
     }
 
     /** The car's back key closes nothing yet; it is accepted so it never reaches the phone. */
-    fun key(keyCode: Int) = Unit
 
     private fun drain(encoder: MediaCodec) {
         val info = MediaCodec.BufferInfo()

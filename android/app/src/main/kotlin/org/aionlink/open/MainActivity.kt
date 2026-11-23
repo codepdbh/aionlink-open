@@ -144,6 +144,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /** Sends the same bridge key a steering-wheel "next" would, so the key path can be checked without the car. */
+    fun testHeadunitKey() {
+        val bridge = headunitPreviewBridge ?: return
+        val next = org.aionlink.projection.CarKeys.KEYCODE_MEDIA_NEXT
+        val sent = bridge.key(0, next) && bridge.key(1, next)
+        event("Prueba Android Auto: tecla siguiente ${if (sent) "enviada por el puente" else "no enviada (puente sin conexión)"}")
+    }
+
     fun stopHeadunitPreview() {
         headunitPreviewBridge?.close(); headunitPreviewBridge = null
         headunitPreviewAudio?.close(); headunitPreviewAudio = null
@@ -690,6 +698,9 @@ class MainActivity : ComponentActivity() {
                     OutlinedButton(onClick = { if (headunitPreview) model.stopHeadunitPreview() else model.startHeadunitPreview(context) },
                         enabled = videoStream.stage != "STREAMING" && videoStream.stage != "STARTING", modifier = Modifier.fillMaxWidth()) {
                         Text(if (headunitPreview) "Detener prueba local de Android Auto" else "Prueba local sin coche: Android Auto en pantalla virtual")
+                    }
+                    if (headunitPreview) OutlinedButton(onClick = { model.testHeadunitKey() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Probar tecla del volante: siguiente pista")
                     }
                 }
             }
