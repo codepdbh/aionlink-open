@@ -1,5 +1,13 @@
 # Cambios
 
+## 0.43.0-research — 2026-11-23
+
+- Botones físicos del volante: AionLink lee las teclas del coche del canal CONTROL (`custom_key_event`, método 12) y de UIBC, registra cada código en el diagnóstico y, con OpenHeadunit Lite, las envía a Android Auto por el puente (mensaje 4).
+- Traducción según la lectura estática del manejador de teclas ICCOA de Samsung: pista siguiente/anterior, play/pausa, contestar/colgar, voz (8107), inicio (8103), teléfono (8104), música (8106) y foco/perilla (8114–8117). El volumen no se reenvía.
+- Sin OpenHeadunit, las teclas multimedia van al reproductor activo del teléfono.
+- La prueba local añade «Probar tecla del volante: siguiente pista».
+- Requiere OpenHeadunit Lite con el mensaje 4 del puente. Sin verificar en el AION: el coche envió `custom_key_event` en una prueba del 2026-11-03, pero no se sabe qué botón genera cada código.
+
 ## 0.41.0-research — 2026-11-08
 
 - Con Open Headunit como fuente, el sonido de Android Auto llega a AionLink por el puente (pipe PCM) y se envía al coche en AAC; ya no suena en el teléfono ni requiere captura de audio.

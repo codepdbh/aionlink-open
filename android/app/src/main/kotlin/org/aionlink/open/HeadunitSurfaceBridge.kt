@@ -89,7 +89,22 @@ class HeadunitSurfaceBridge(
         } catch (_: RemoteException) { false }
     }
 
-    private companion object { const val TOUCH = 3 }
+    /**
+     * Car key for Android Auto (bridge message 4): action 0 down / 1 up and an Android key code from
+     * [org.aionlink.projection.CarKeys.toAndroid]. Older receivers ignore the message; false if not connected.
+     */
+    fun key(action: Int, keyCode: Int): Boolean {
+        val target = remote ?: return false
+        return try {
+            target.send(Message.obtain(null, KEY).apply {
+                replyTo = reply
+                data = Bundle().apply { putInt("action", action); putInt("keycode", keyCode) }
+            })
+            true
+        } catch (_: RemoteException) { false }
+    }
+
+    private companion object { const val TOUCH = 3; const val KEY = 4 }
 
     override fun close() {
         if (closed) return
