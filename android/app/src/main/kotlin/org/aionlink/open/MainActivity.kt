@@ -433,6 +433,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         } }
         viewModelScope.launch { network.state.collect {
             event("Red: ${it.stage}; ${it.message}")
+            // The car's network vanished during a session (typically: the owner left the car). Close everything so a
+            // later connection does not meet a half-open session.
+            if (it.stage == NetworkStage.ERROR && projection.active) stopAll("La red del coche se perdió; sesión cerrada")
             if (network.state.value == it && pendingAutoPin.pending) {
                 if (it.stage == NetworkStage.CONNECTED && it.mode == org.aionlink.iccoa.NetworkMode.P2P) {
                     val pin = pendingAutoPin.take() ?: return@collect

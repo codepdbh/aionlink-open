@@ -39,6 +39,8 @@ class SessionControlServer(
     private val onSent: (String) -> Unit = {},
     /** Decrypted CustomKeyEvent body (method 12, a car key); a copy the receiver may keep. */
     private val onCustomKey: (ByteArray) -> Unit = {},
+    /** Silence after which the active channel reports CAR_SILENT; shorter only in tests. */
+    private val carSilenceMs: Int = CAR_SILENCE_MS,
     private val onStatus: (ControlChannelStatus) -> Unit
 ) : AutoCloseable {
     companion object {
@@ -58,6 +60,18 @@ class SessionControlServer(
         const val METHOD_GET_APP_DETAIL_RESPONSE = 29
         const val METHOD_INVOKE_APP = 30
         const val METHOD_APP_STATE_CHANGED = 31
+
+        /**
+         * The car sends a heartbeat about every 2 s (66 received for 67 sent in the 2026-11-06 session). Twenty seconds
+         * (about ten missed heartbeats) without any frame means the link is gone, which otherwise only TCP keepalive
+         * (hours) would notice. Generous on purpose: whether the car keeps sending while CarLink is in its background
+         * is not verified, and leaving the car is caught sooner by the Wi-Fi Direct network loss. Only the active
+         * CONTROL channel uses it; MEDIA and SENSOR may be quiet.
+         */
+        const val CAR_SILENCE_MS = 20_000
+
+        /** Stages after which the car is no longer reachable on this channel. */
+        val LOST_STAGES = setOf("CLOSED_BY_RECEIVER", "IO_FAILURE", "INVALID_FRAME", "CAR_SILENT")
 
         /** UCarControlProtocol names in MiAuto, matching xa/s in Samsung; for diagnostics only. */
         private val METHOD_NAMES = listOf("heartbeat", "get_port_request", "get_port_response", "notify_car_to_foreground",
@@ -106,6 +120,7 @@ class SessionControlServer(
             val peer = listener.accept()
             client = peer
             peer.tcpNoDelay = true; peer.keepAlive = true
+            if (active) peer.soTimeout = carSilenceMs
             publish("CONNECTED")
             val output = peer.getOutputStream()
             if (active) {
@@ -114,7 +129,7 @@ class SessionControlServer(
                 Thread({ heartbeatLoop(output) }, "AionLink-control-heartbeat").apply { isDaemon = true; start() }
             }
             readLoop(DataInputStream(peer.getInputStream()), output)
-        } catch (_: java.net.SocketTimeoutException) { if (!closed) publish("NO_CONNECTION_30S") }
+        } catch (_: java.net.SocketTimeoutException) { if (!closed) publish(if (stage == "CONNECTED") "CAR_SILENT" else "NO_CONNECTION_30S") }
         catch (_: EOFException) { if (!closed) publish("CLOSED_BY_RECEIVER") }
         catch (_: IOException) { if (!closed) publish("IO_FAILURE") }
         catch (_: IllegalArgumentException) { if (!closed) publish("INVALID_FRAME") }

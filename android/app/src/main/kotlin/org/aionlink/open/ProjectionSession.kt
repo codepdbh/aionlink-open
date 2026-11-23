@@ -111,6 +111,10 @@ class ProjectionSession(private val context: Context, private val savings: Phone
                 }
             }, onSent = { event("Canal CONTROL envió: $it") }, onCustomKey = { body -> customKey("CONTROL", body) }, onStatus = { status ->
                 if (mutableControl.value.stage != status.stage) event("Canal CONTROL: ${status.stage}")
+                // The car is gone (left the car, link lost or closed): end everything now so the next connection
+                // starts clean and Android Auto is released, instead of a half-open session waiting forever.
+                if (status.stage in SessionControlServer.LOST_STAGES && mutableControl.value.stage == "CONNECTED")
+                    main.post { stop("COCHE_PERDIDO_${status.stage}") }
                 if (mutableControl.value.carConfig != status.carConfig) event("Configuración del coche: ${status.carConfig}")
                 mutableControl.value = status
             }).also { it.start(); controlServer = it }
@@ -379,7 +383,14 @@ class ProjectionSession(private val context: Context, private val savings: Phone
     }
 
     fun stop(reason: String?) {
+        val wasStreaming = mutableStream.value.stage == "STREAMING"
         stopStream(reason ?: "NUEVA_SESION")
+        // Like unplugging a car: whatever played through it stops instead of moving to the phone speaker.
+        if (reason != null && wasStreaming) {
+            dispatchMediaKey(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+            dispatchMediaKey(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+            event("Reproducción pausada al terminar la sesión con el coche")
+        }
         controlServer?.close(); controlServer = null
         mediaServer?.close(); mediaServer = null
         sensorServer?.close(); sensorServer = null

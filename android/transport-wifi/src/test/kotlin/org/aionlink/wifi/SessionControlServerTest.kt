@@ -203,4 +203,32 @@ class SessionControlServerTest {
             }
         }
     }
+
+    @Test fun aSilentCarIsReportedAsLost() {
+        val stages = java.util.concurrent.LinkedBlockingQueue<String>()
+        SessionControlServer(InetAddress.getLoopbackAddress(), ByteArray(16), port = 0, carSilenceMs = 300) { stages += it.stage }.use { server ->
+            server.start()
+            Socket(InetAddress.getLoopbackAddress(), server.boundPort).use {
+                // The car connects and then sends nothing, as when its Wi-Fi Direct link silently disappears.
+                val seen = mutableListOf<String>()
+                val deadline = System.currentTimeMillis() + 5000
+                while ("CAR_SILENT" !in seen && System.currentTimeMillis() < deadline) stages.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { seen += it }
+                assertTrue(seen.toString(), "CAR_SILENT" in seen)
+                assertTrue("CAR_SILENT" in SessionControlServer.LOST_STAGES)
+            }
+        }
+    }
+
+    @Test fun aCarThatClosesTheChannelIsReportedAsLost() {
+        val stages = java.util.concurrent.LinkedBlockingQueue<String>()
+        SessionControlServer(InetAddress.getLoopbackAddress(), ByteArray(16), port = 0) { stages += it.stage }.use { server ->
+            server.start()
+            Socket(InetAddress.getLoopbackAddress(), server.boundPort).close()
+            val seen = mutableListOf<String>()
+            val deadline = System.currentTimeMillis() + 5000
+            while (seen.none { it in SessionControlServer.LOST_STAGES } && System.currentTimeMillis() < deadline)
+                stages.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { seen += it }
+            assertTrue(seen.toString(), seen.any { it in SessionControlServer.LOST_STAGES })
+        }
+    }
 }
