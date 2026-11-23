@@ -7,6 +7,20 @@
 - Sin OpenHeadunit, las teclas multimedia van al reproductor activo del teléfono.
 - La prueba local añade «Probar tecla del volante: siguiente pista».
 - Requiere OpenHeadunit Lite con el mensaje 4 del puente. Sin verificar en el AION: el coche envió `custom_key_event` en una prueba del 2026-11-03, pero no se sabe qué botón genera cada código.
+- OpenHeadunit Lite anuncia también la tecla de colgar a Android Auto; sin ella, ese botón del volante se ignoraba.
+- Al salir del coche: si se pierde la red Wi-Fi Direct, el coche cierra el canal o deja de responder 20 s, AionLink cierra toda la sesión de inmediato. Antes quedaba a medias, Android Auto seguía funcionando y la siguiente conexión podía fallar.
+- Al terminar una sesión que estaba transmitiendo, la música se pausa en lugar de pasar al altavoz del teléfono; OpenHeadunit Lite también la pausa antes de cerrar Android Auto a los 60 s.
+- Verificado en el teléfono: la tecla de prueba cambió de canción por el camino AionLink → puente → Lite → Android Auto.
+- Rendimiento: el modo coche envía el vídeo a ~3,1 Mbps en lugar de ~5,7 Mbps (45 % menos datos por Wi-Fi) y reduce calidad si Android avisa de temperatura alta.
+- OpenHeadunit Lite cierra la sesión de Android Auto 60 s después de desconectarse; antes seguía funcionando sin cliente y calentaba el teléfono.
+- OpenHeadunit Lite tiene permisos propios (`org.aionlink.headunit.lite.permission.*`) y AionLink solo usa ese paquete, sin conflictos con Open Headunit completo.
+
+## 0.42.0-research — 2026-11-10
+
+- Pantalla principal simplificada: estado, lista «Antes de conectar» (solo si falta algo) y un botón Buscar/Conectar; el resto en «Opciones avanzadas y diagnóstico».
+- Icono propio de AionLink (adaptativo y monocromo) y pantalla nueva de OpenHeadunit Lite.
+- Un teléfono nuevo empieza en modo Android Auto.
+- Arreglado un cierre nativo del audio al desconectar el puente.
 
 ## 0.41.0-research — 2026-11-08
 

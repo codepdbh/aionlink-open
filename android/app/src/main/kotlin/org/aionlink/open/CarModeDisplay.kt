@@ -157,8 +157,6 @@ class CarModeDisplay(
         event.recycle()
     }
 
-    /** The car's back key closes nothing yet; it is accepted so it never reaches the phone. */
-
     private fun drain(encoder: MediaCodec) {
         val info = MediaCodec.BufferInfo()
         var config: ByteArray? = null

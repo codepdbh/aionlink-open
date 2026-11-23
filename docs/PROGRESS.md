@@ -2540,3 +2540,84 @@ y audio aceptados, H.264 19-25 unidades/s, AAC ~47 tramas/s, 0 cierres. APK Sond
 `7e3c2e8744c1ea93ced857aa6fe1369354fc811d88ee3c2ab3277cf8e39c7b03`. Sonda: tests,
 assembleDebug y lintDebug correctos; Lite: assembleLiteDebug y lintLiteDebug
 correctos.
+
+## 0.43 - Botones del volante - 2026-11-23
+
+Origen: ramas del propietario `steering-wheel-keys` (AionLink, `f140f85`) y
+`aionlink-steering-keys` (fork, `2df20607`), ambas sobre el `main` vigente.
+Integradas en `main` sin el trailer Co-Authored-By de los commits originales (regla
+del propietario), con el propietario como autor.
+
+Contenido de las ramas: `CarKeys` decodifica CustomKeyEvent del canal CONTROL
+(metodo 12, campos 1 accion y 2 codigo, segun lectura estatica de UCarProto) y teclas
+UIBC; traduce codigos 81xx y Android segun la lectura estatica del manejador ICCOA de
+Samsung; con OpenHeadunit Lite envia la tecla por el mensaje 4 del puente, que entra
+en `CommManager.sendKey` como las teclas de una unidad principal. Sin Lite, las teclas
+multimedia van a la sesion multimedia del telefono. Volumen no se reenvia.
+
+Revision y cambios propios:
+- `KeyCode.supported` del fork no incluia `KEYCODE_ENDCALL`: AionLink lo traducia pero
+  Android Auto lo habria ignorado. Se anade a la lista anunciada (afecta tambien a la
+  version completa, solo anuncia una tecla mas).
+- Se elimina un comentario huerfano en `CarModeDisplay` tras quitar `key()`.
+- CHANGELOG: entrada 0.42 que faltaba y cambios de rendimiento y paquete en 0.43.
+
+Verificacion: AionLink `testDebugUnitTest`, `:projection:test` (CarKeysTest 4/4),
+`:transport-wifi:testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`
+correctos; APK 0.43 SHA-256
+`111f3e10d443f675151da3229c2d0ecf2ff1fc9320b01ca2df31fefa732428f8`. Lite
+`assembleLiteDebug`, `lintLiteDebug` y pruebas de teclas del fork (21, 0 fallos)
+correctos; APK `588f2e34ff343d818dcf98e0484e4dac5a6242225b3349146056e1713995c841`.
+Instaladas en el S25 (Lite primero). Prueba local: el boton de prueba envio
+KEYCODE_MEDIA_NEXT; la Lite registro `TX Key -> AA=87 (isPress=true/false)
+src=aionlink` y la sesion multimedia paso de la pista 28 a la 29. 0 cierres propios;
+el buffer de cierres contiene uno de Android Auto `:projection` del 2026-11-22 18:59
+(`Failed to start connection`, DeadObjectException), sin diagnostico asociado.
+Incidencia de herramienta: el scratchpad se limpio y se recreo `tap_text.py`.
+
+Pendiente: probar en el AION que boton fisico envia cada codigo (el diagnostico
+registra todos) y la tecla de voz con el asistente.
+
+### Desconexion al salir del coche y reconexion - 2026-11-23
+
+Informe del propietario: a veces, al salir del coche, algo sigue reproduciendose, y
+a veces la reconexion falla. No hay registros ni diagnosticos de esas sesiones (el
+ultimo exportado es del 2026-11-08; logcat solo cubre hoy), asi que el analisis es
+estatico y las pruebas, locales.
+
+Hallazgos en el codigo:
+- Al perder la red Wi-Fi Direct (P2pConnector `fail("La red del receptor se
+  desconectó")`, observado en diagnosticos del 28-30/10) nadie cerraba la sesion de
+  proyeccion: `projection.active` seguia verdadero, el puente con OpenHeadunit Lite
+  seguia acoplado y Android Auto seguia reproduciendo.
+- El canal CONTROL no tenia tiempo de lectura: sin mensaje 23 del coche, un enlace
+  desaparecido solo se notaria por keepalive TCP (horas); la sesion quedaba a medias
+  hasta la siguiente conexion.
+- Al cerrarse la sesion de Android Auto, la aplicacion de musica que seguia sonando
+  pasaba al altavoz del telefono.
+
+Cambios:
+- `SessionControlServer`: el canal CONTROL activo usa `soTimeout` de 20 s; el coche
+  envia latidos cada ~2 s (66 recibidos por 67 enviados el 2026-11-06), asi que ~10
+  latidos perdidos publican `CAR_SILENT`. Margen amplio porque no esta verificado si
+  el coche sigue enviando latidos con CarLink en segundo plano. `LOST_STAGES` =
+  CLOSED_BY_RECEIVER, IO_FAILURE, INVALID_FRAME, CAR_SILENT.
+- `ProjectionSession`: si CONTROL pasa de CONNECTED a una etapa perdida, cierra la
+  sesion completa (`COCHE_PERDIDO_<etapa>`). Al cerrar una sesion que estaba
+  transmitiendo, envia KEYCODE_MEDIA_PAUSE a la sesion multimedia activa.
+- `MainActivity`: red en ERROR con proyeccion activa → `stopAll`.
+- Fork, `AionLinkSurfaceService`: antes del cierre por inactividad (60 s) envia
+  KEYCODE_MEDIA_PAUSE a Android Auto y detiene la sesion 500 ms despues.
+
+Verificacion: `:transport-wifi:testDebugUnitTest` 10/10 con dos pruebas nuevas en
+loopback (coche silencioso → CAR_SILENT; coche que cierra → etapa perdida);
+`testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug` correctos; APK Sonda
+`fbf8a4faa48c0a6d278bc4ef0a93c23ab9bb72829afbb1536a5015425fa8aad3`. Lite
+`assembleLiteDebug` y `lintLiteDebug` correctos; APK
+`64fe35f5fbfdb82804a9a5b102681faf3f3002aba30782bd6d4e965ff0bc8e64`. Prueba local
+en el S25: musica en PLAYING por el puente; tras desacoplar, a los 60 s la Lite
+registro `TX Key -> AA=127` (pulsar/soltar, `src=aionlink-idle`) y la parada; a los
+68 s ningun reproductor activo (`mMusicActiveMs=0`). La pausa de AionLink al perder
+el coche y la deteccion CAR_SILENT no se pueden probar sin el coche: pendiente
+verificar en el AION saliendo del coche y reconectando (exportar el diagnostico si
+la reconexion falla).
